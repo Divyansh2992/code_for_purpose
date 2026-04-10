@@ -22,7 +22,14 @@ async def run_query(req: QueryRequest) -> QueryResponse:
     # ── 1. Validate dataset ────────────────────────────────────────────────
     dataset = state.datasets.get(req.dataset_id)
     if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found. Please upload a CSV first.")
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Dataset not found. This usually happens because the server restarted "
+                "(Render free tier sleeps after 15 minutes of inactivity and clears all "
+                "in-memory data on wake-up). Please re-upload your CSV file and try again."
+            ),
+        )
 
     file_path: str      = dataset["file_path"]
     schema: list        = dataset["columns"]
