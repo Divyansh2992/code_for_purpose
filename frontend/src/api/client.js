@@ -1,4 +1,4 @@
-const BASE = '';   // Vite proxy handles /upload and /query → localhost:8000
+const BASE = import.meta.env.VITE_API_URL || '';
 
 export async function uploadCSV(file, onProgress) {
   const form = new FormData();
