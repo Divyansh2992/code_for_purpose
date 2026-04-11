@@ -6,11 +6,13 @@ data health → LLM explanation → chart detection → structured response.
 import re
 from typing import List, Dict, Any, Optional, Tuple
 
+import duckdb
+import pandas as pd
 from fastapi import APIRouter, HTTPException
 
 import state
 from models.schemas import QueryRequest, QueryResponse, DataHealth
-from services import llm_service, query_engine, preprocessing, data_health
+from services import llm_service, query_engine, preprocessing, data_health, spark_engine
 
 router = APIRouter()
 
@@ -36,7 +38,7 @@ async def run_query(req: QueryRequest) -> QueryResponse:
     sample: list        = dataset["sample"]
     row_count: int      = dataset["row_count"]
     session_id: str     = req.session_id or "default"
-    mode: str           = req.mode  # "raw" | "smart"
+    mode: str           = req.mode  # "raw" | "smart" | "scalable"
 
     # ── 2. Build history for context memory ───────────────────────────────
     history = state.sessions.get(session_id, [])
@@ -54,15 +56,30 @@ async def run_query(req: QueryRequest) -> QueryResponse:
             detail=f"LLM generated a non-SELECT statement. Query rejected.\nSQL: {sql}",
         )
 
-    # ── 4. Execute query (raw or smart) ───────────────────────────────────
+    # ── 4. Execute query (raw, smart, or scalable) ───────────────────────
     log: List[str] = []
     outlier_count: int = 0
     conn = None
+    cleaned_df_for_health = None
 
     try:
         if mode == "smart":
             log, outlier_count, conn = preprocessing.preprocess(file_path, schema)
             rows, columns = query_engine.execute_query(file_path, sql, conn=conn)
+        elif mode == "scalable":
+            raw_df = pd.read_csv(file_path)
+            spark_result = spark_engine.run_spark_pipeline(raw_df)
+            cleaned_df_for_health = spark_result["cleaned_df"]
+
+            conn = duckdb.connect()
+            conn.register("spark_cleaned_df", cleaned_df_for_health)
+            conn.execute("CREATE TABLE data AS SELECT * FROM spark_cleaned_df")
+
+            rows, columns = query_engine.execute_query(file_path, sql, conn=conn)
+            log = [
+                "Processed using PySpark (scalable mode)",
+                f"Rows processed in Spark pipeline: {spark_result['rows_processed']}",
+            ]
         else:
             rows, columns = query_engine.execute_query(file_path, sql)
             log = ["ℹ️ Results are based on raw data (no preprocessing applied)."]
@@ -79,7 +96,7 @@ async def run_query(req: QueryRequest) -> QueryResponse:
             data_health=DataHealth(**health),
             preprocessing_log=log,
             mode=mode,
-            error=f"Query execution failed: {error_msg}",
+            error=_format_query_error(mode, error_msg),
         )
     finally:
         if conn is not None:
@@ -89,7 +106,10 @@ async def run_query(req: QueryRequest) -> QueryResponse:
                 pass
 
     # ── 5. Data health ────────────────────────────────────────────────────
-    health = data_health.compute_health(schema, outlier_count, len(rows) if rows else row_count)
+    if mode == "scalable" and cleaned_df_for_health is not None:
+        health = data_health.compute_health_from_dataframe(cleaned_df_for_health)
+    else:
+        health = data_health.compute_health(schema, outlier_count, len(rows) if rows else row_count)
 
     # ── 6. LLM explanation ────────────────────────────────────────────────
     explanation_data = {"explanation": "Query executed successfully.", "insights": [], "why_analysis": ""}
@@ -186,3 +206,33 @@ def _serialise_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 new_row[k] = v
         clean.append(new_row)
     return clean
+
+
+def _format_query_error(mode: str, error_msg: str) -> str:
+    if mode != "scalable":
+        return f"Query execution failed: {error_msg}"
+
+    msg = error_msg.lower()
+
+    if "pyspark is not available" in msg or "no module named 'pyspark'" in msg:
+        return (
+            "Scalable mode is unavailable because PySpark is not installed on the API server. "
+            "Install pyspark and retry, or use smart/raw mode."
+        )
+
+    if (
+        "java gateway process exited before sending its port number" in msg
+        or "java" in msg and ("not found" in msg or "could not find" in msg)
+    ):
+        return (
+            "Scalable mode requires a local Java runtime for Spark. "
+            "Install Java and retry, or use smart/raw mode."
+        )
+
+    if "unsupportedclassversionerror" in msg or "class file version" in msg:
+        return (
+            "Scalable mode failed because Java is too old for the installed Spark version. "
+            "Use Java 17+ and retry."
+        )
+
+    return f"Scalable mode failed during Spark processing: {error_msg}"

@@ -24,7 +24,7 @@ class UploadResponse(BaseModel):
 class QueryRequest(BaseModel):
     dataset_id: str
     question: str
-    mode: str = "raw"          # "raw" | "smart"
+    mode: str = "raw"          # "raw" | "smart" | "scalable"
     session_id: Optional[str] = None
 
 

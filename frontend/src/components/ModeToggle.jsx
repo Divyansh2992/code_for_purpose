@@ -1,4 +1,10 @@
-import { Zap, FlaskConical } from 'lucide-react';
+import { Zap, FlaskConical, Cpu } from 'lucide-react';
+
+const MODE_DESCRIPTIONS = {
+  raw: 'Direct query on original data, no preprocessing',
+  smart: 'Auto-clean nulls & outliers before querying',
+  scalable: 'PySpark preprocessing for larger datasets (local Spark)',
+};
 
 export default function ModeToggle({ mode, onChange }) {
   return (
@@ -21,12 +27,16 @@ export default function ModeToggle({ mode, onChange }) {
           <FlaskConical size={13} />
           Smart
         </button>
+        <button
+          id="mode-scalable"
+          className={`mode-btn${mode === 'scalable' ? ' active' : ''}`}
+          onClick={() => onChange('scalable')}
+        >
+          <Cpu size={13} />
+          Scalable
+        </button>
       </div>
-      <p className="mode-desc">
-        {mode === 'raw'
-          ? 'Direct query on original data, no preprocessing'
-          : 'Auto-clean nulls & outliers before querying'}
-      </p>
+      <p className="mode-desc">{MODE_DESCRIPTIONS[mode] || MODE_DESCRIPTIONS.raw}</p>
     </div>
   );
 }
