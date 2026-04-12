@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: 5173,
+      allowedHosts: ['code-for-purpose-ynou.onrender.com'],
       // Proxy only applies when running locally against localhost backend
       ...(isRemote ? {} : {
         proxy: {
