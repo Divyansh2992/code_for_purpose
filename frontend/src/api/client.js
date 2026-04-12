@@ -1,4 +1,6 @@
-const BASE = import.meta.env.VITE_API_URL || '';
+const DEFAULT_PROD_API_URL = 'https://code-for-purpose-ynou.onrender.com';
+const configuredBaseUrl = (import.meta.env.VITE_API_URL || '').trim();
+const BASE = (configuredBaseUrl || (import.meta.env.PROD ? DEFAULT_PROD_API_URL : '')).replace(/\/$/, '');
 
 export async function uploadCSV(file, onProgress) {
   const form = new FormData();

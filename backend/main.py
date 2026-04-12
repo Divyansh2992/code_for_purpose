@@ -19,12 +19,12 @@ app = FastAPI(
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
 # Always allow local dev servers. In production, also allow the deployed
-# Netlify frontend URL set via the FRONTEND_URL env var on Render.
+# frontend URL plus any origins passed via the FRONTEND_URL env var on Render.
 _allowed_origins = [
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
-    "https://admirable-medovik-eb4731.netlify.app",  # deployed frontend
+    "https://code-for-purpose-ynou.onrender.com",  # deployed frontend
 ]
 
 # Allow overriding / adding more origins via env var (comma-separated)
