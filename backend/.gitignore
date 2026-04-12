@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.so
+*.egg-info/
+
+# Environment
+.env
+.env.*
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+uploads/
+
+# Logs
+*.log
+
+# Docker
+*.pid
+*.db
+
+# Misc
+*.bak
+*.swp
+*.tmp
+
+# Ignore test outputs
+htmlcov/
+.coverage
+.cache/
+
+# Ignore build artifacts
+dist/
+build/
+
+# Ignore virtual environments
+venv/
+.venv/
+
+# Ignore runtime files
+runtime.txt
