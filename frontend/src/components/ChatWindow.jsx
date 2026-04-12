@@ -82,10 +82,10 @@ export default function ChatWindow({ datasetId, mode, onSuggestionSelect, pendin
               <div className="message-row">
                 <div className="msg-avatar ai">🤖</div>
                 <div className="ai-card" style={{ padding: '12px 16px' }}>
-                  <div className="loading-dots">
-                    <div className="loading-dot" />
-                    <div className="loading-dot" />
-                    <div className="loading-dot" />
+                  <div className="ai-typing">
+                    <span></span>
+                    <span></span>
+                    <span></span>
                   </div>
                 </div>
               </div>
@@ -96,7 +96,13 @@ export default function ChatWindow({ datasetId, mode, onSuggestionSelect, pendin
       </div>
 
       {/* Input */}
-      <div className="chat-input-area">
+      <div className="chat-input-area glass-card" style={{
+        position: 'sticky',
+        bottom: 20,
+        margin: '0 20px',
+        borderRadius: 20,
+        boxShadow: '0 10px 40px rgba(0,0,0,0.5)'
+      }}>
         <div className="chat-input-row">
           <textarea
             id="chat-input"

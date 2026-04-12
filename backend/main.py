@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from routers import upload, query
+from routers import upload, query, data_health_router, auto_visualize, correlation
 
 app = FastAPI(
     title="Talk to Data API",
@@ -45,6 +45,9 @@ app.add_middleware(
 
 app.include_router(upload.router, tags=["Upload"])
 app.include_router(query.router, tags=["Query"])
+app.include_router(data_health_router.router, tags=["Data Health"])
+app.include_router(auto_visualize.router, tags=["Auto Visualize"])
+app.include_router(correlation.router, tags=["Correlation"])
 
 
 @app.get("/", tags=["Health"])

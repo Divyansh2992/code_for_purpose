@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
-import { BarChart2, PieChart as PieIcon, TrendingUp, Sparkles, Zap, AlertTriangle } from 'lucide-react';
+import { useMemo, useEffect, useState, useCallback } from 'react';
+import { BarChart2, PieChart as PieIcon, TrendingUp, Sparkles, Zap, RefreshCw } from 'lucide-react';
 import ChartRenderer from './ChartRenderer';
+import { fetchAutoVisualize } from '../api/client';
 
 /* ───────────────────── helpers ───────────────────── */
 function avg(arr, key) {
@@ -16,8 +17,13 @@ function fmt(n) {
   if (n === null || n === undefined) return 'N/A';
   const num = parseFloat(n);
   if (isNaN(num)) return String(n);
+  if (Math.abs(num) >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (Math.abs(num) >= 1000) return `${(num / 1000).toFixed(1)}k`;
   return num.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function isChartable(result, chartX, chartY) {
+  return !!(chartX && chartY?.length > 0 && result?.length > 1);
 }
 
 /* ───────────────────── stat mini-card ─────────────── */
@@ -36,8 +42,24 @@ function StatCard({ label, value, color = 'var(--secondary)', sub }) {
   );
 }
 
+/* ───────────────────── source badge ────────────────── */
+function SourceBadge({ isAuto }) {
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 10, padding: '2px 8px', borderRadius: 99,
+      background: isAuto ? 'rgba(6,182,212,0.12)' : 'rgba(124,58,237,0.12)',
+      color: isAuto ? 'var(--secondary)' : 'var(--primary-light)',
+      border: `1px solid ${isAuto ? 'rgba(6,182,212,0.25)' : 'rgba(124,58,237,0.25)'}`,
+      fontWeight: 600, letterSpacing: '0.04em',
+    }}>
+      {isAuto ? '⚙ DATASET OVERVIEW' : '💬 FROM QUERY'}
+    </span>
+  );
+}
+
 /* ───────────────────── chart card ─────────────────── */
-function ChartCard({ icon: Icon, title, accentColor = 'var(--primary-dim)', children }) {
+function ChartCard({ icon: Icon, title, accentColor = 'var(--primary-dim)', badge, children }) {
   return (
     <div className="insight-card">
       <div className="insight-card-header">
@@ -45,38 +67,108 @@ function ChartCard({ icon: Icon, title, accentColor = 'var(--primary-dim)', chil
           <Icon size={16} />
         </div>
         <h3 className="insight-card-title">{title}</h3>
+        {badge && <div style={{ marginLeft: 'auto' }}>{badge}</div>}
       </div>
       {children}
     </div>
   );
 }
 
+/* ───────────────────── loading skeleton ────────────── */
+function ChartSkeleton() {
+  return (
+    <div style={{
+      flex: 1, minHeight: 200, borderRadius: 10,
+      background: 'rgba(255,255,255,0.03)',
+      animation: 'skeleton-pulse 1.5s ease-in-out infinite',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <RefreshCw size={24} style={{ color: 'var(--text-faint)', opacity: 0.5, animation: 'spin 1.5s linear infinite' }} />
+    </div>
+  );
+}
+
 /* ───────────────────── main component ─────────────── */
-export default function InsightsDashboard({ result, columns, chartX, chartY, question }) {
-  const hasChart = chartX && chartY?.length && result?.length > 1;
+export default function InsightsDashboard({ datasetId, mode, result, columns, chartX, chartY, question }) {
+  const [autoData, setAutoData]       = useState(null);
+  const [autoLoading, setAutoLoading] = useState(false);
+
+  // Is the last query result chart-friendly?
+  const queryChartable = isChartable(result, chartX, chartY);
+
+  const loadAutoData = useCallback(() => {
+    if (!datasetId) return;
+    setAutoLoading(true);
+    fetchAutoVisualize({ datasetId, mode })
+      .then(setAutoData)
+      .catch(() => {})
+      .finally(() => setAutoLoading(false));
+  }, [datasetId, mode]);
+
+  // Only fetch auto-visualize when the query result can't produce charts itself,
+  // OR when the dataset / mode changes and we don't have auto data yet.
+  useEffect(() => {
+    if (!datasetId) return;
+    // Always refresh auto data when dataset/mode changes (for the overview cards)
+    loadAutoData();
+  }, [datasetId, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Decide chart sources ────────────────────────────────────────────────
+     When the query IS chartable:
+       - Trend     → query result as area chart  (shows what was asked)
+       - Pie       → query result top 8 as pie   (composition of the answer)
+       - Comparison→ query result as bar chart   (comparison view of the answer)
+     When the query is NOT chartable:
+       - All 3   → auto-generated dataset overview
+  ──────────────────────────────────────────────────────────────────────── */
+
+  const trendSrc = queryChartable
+    ? { result, chartX, chartY, chartType: 'area',  title: `Trend — ${question || chartX}`, isAuto: false }
+    : autoData?.trend
+      ? { result: autoData.trend.result, chartX: autoData.trend.chart_x, chartY: autoData.trend.chart_y, chartType: autoData.trend.chart_type, title: autoData.trend.title, isAuto: true }
+      : null;
+
+  const compSrc = queryChartable
+    ? { result, chartX, chartY, chartType: 'pie',   title: `Composition — ${chartX}`, isAuto: false }
+    : autoData?.composition
+      ? { result: autoData.composition.result, chartX: autoData.composition.chart_x, chartY: autoData.composition.chart_y, chartType: 'pie', title: autoData.composition.title, isAuto: true }
+      : null;
+
+  const barSrc = queryChartable
+    ? { result, chartX, chartY, chartType: 'bar',   title: `Comparison — ${question || chartX}`, isAuto: false }
+    : autoData?.comparison
+      ? { result: autoData.comparison.result, chartX: autoData.comparison.chart_x, chartY: autoData.comparison.chart_y, chartType: 'bar', title: autoData.comparison.title, isAuto: true }
+      : null;
+
+  /* ── Stats (from query if chartable, else auto trend) ────────────────── */
+  const statsSource = queryChartable ? result : (autoData?.trend?.result ?? []);
+  const statsKey    = queryChartable ? chartY?.[0] : autoData?.trend?.chart_y?.[0];
 
   const stats = useMemo(() => {
-    if (!result?.length || !chartY?.length) return null;
-    const yKey = chartY[0];
-    const top = maxRow(result, yKey);
-    const average = avg(result, yKey);
-    const values = result.map(r => parseFloat(r[yKey]) || 0);
-    const max = Math.max(...values);
-    const min = Math.min(...values);
-    return { top, average, max, min, yKey };
-  }, [result, chartY]);
+    if (!statsSource?.length || !statsKey) return null;
+    const top     = maxRow(statsSource, statsKey);
+    const average = avg(statsSource, statsKey);
+    const values  = statsSource.map(r => parseFloat(r[statsKey]) || 0);
+    const max     = Math.max(...values);
+    const min     = Math.min(...values);
+    return { top, average, max, min, yKey: statsKey };
+  }, [statsSource, statsKey]);
 
-  if (!result || result.length === 0) {
+  const summaryStats = autoData?.summary_stats ?? {};
+
+  if (!datasetId) {
     return (
       <div className="dashboard-container">
         <div className="chat-empty">
           <div className="chat-empty-icon">📊</div>
-          <h2>No data to visualize</h2>
-          <p>Ask a question first, then click Visualize to see the dashboard.</p>
+          <h2>Upload a CSV first</h2>
+          <p>Load a dataset, then switch to Visualize to see charts.</p>
         </div>
       </div>
     );
   }
+
+  const isAutoMode = !queryChartable;
 
   return (
     <div className="dashboard-container">
@@ -84,84 +176,135 @@ export default function InsightsDashboard({ result, columns, chartX, chartY, que
       <div className="dashboard-header">
         <div>
           <h2 className="dashboard-title">✨ Visual Insights</h2>
-          {question && (
+          {queryChartable && question && (
             <p className="chat-header-sub" style={{ maxWidth: 520, marginTop: 2 }}>
               ← <em>"{question}"</em>
             </p>
           )}
+          {isAutoMode && (
+            <p className="chat-header-sub" style={{ marginTop: 4, color: 'var(--secondary)' }}>
+              ⚙ Showing dataset overview — ask a question with multiple rows to see query-specific charts
+            </p>
+          )}
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div className="stat-chip">Rows: <span>{result.length}</span></div>
-          <div className="stat-chip">Fields: <span>{columns?.length || '—'}</span></div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div className="stat-chip">
+            Rows: <span>{queryChartable ? result.length.toLocaleString() : (summaryStats.total_rows ?? '—').toLocaleString?.()}</span>
+          </div>
+          <div className="stat-chip">
+            Fields: <span>{queryChartable ? (columns?.length ?? '—') : (summaryStats.total_cols ?? '—')}</span>
+          </div>
+          <button
+            onClick={loadAutoData}
+            disabled={autoLoading}
+            style={{
+              background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '5px 10px', color: 'var(--text-muted)',
+              cursor: autoLoading ? 'not-allowed' : 'pointer', fontSize: 11,
+              display: 'flex', alignItems: 'center', gap: 5, transition: 'var(--transition)',
+            }}
+            title="Refresh auto-generated dataset overview"
+          >
+            <RefreshCw size={12} style={{ animation: autoLoading ? 'spin 1s linear infinite' : 'none' }} />
+            Refresh
+          </button>
         </div>
       </div>
 
       <div className="dashboard-grid">
-        {/* Card 1: Area / Trend */}
-        <ChartCard icon={TrendingUp} title="Trend Analysis" accentColor="var(--primary-dim)">
-          {hasChart ? (
-            <ChartRenderer chartType="area" chartX={chartX} chartY={chartY}
-              result={result} height={240} isDashboard />
-          ) : (
-            <NoChartFallback />
-          )}
+        {/* Card 1: Trend / Area */}
+        <ChartCard
+          icon={TrendingUp}
+          title={trendSrc?.title || 'Trend Analysis'}
+          accentColor="var(--primary-dim)"
+          badge={trendSrc && <SourceBadge isAuto={trendSrc.isAuto} />}
+        >
+          {autoLoading && !trendSrc ? <ChartSkeleton /> :
+           trendSrc ? (
+            <ChartRenderer
+              chartType={trendSrc.chartType}
+              chartX={trendSrc.chartX}
+              chartY={trendSrc.chartY}
+              result={trendSrc.result}
+              height={240}
+              isDashboard
+            />
+          ) : <NoChartFallback loading={autoLoading} />}
         </ChartCard>
 
-        {/* Card 2: Pie / Composition */}
-        <ChartCard icon={PieIcon} title="Composition Breakdown" accentColor="rgba(6,182,212,0.15)">
-          {hasChart ? (
-            <ChartRenderer chartType="pie" chartX={chartX} chartY={chartY}
-              result={result} height={240} isDashboard />
-          ) : (
-            <NoChartFallback />
-          )}
+        {/* Card 2: Composition / Pie */}
+        <ChartCard
+          icon={PieIcon}
+          title={compSrc?.title || 'Composition Breakdown'}
+          accentColor="rgba(6,182,212,0.15)"
+          badge={compSrc && <SourceBadge isAuto={compSrc.isAuto} />}
+        >
+          {autoLoading && !compSrc ? <ChartSkeleton /> :
+           compSrc ? (
+            <ChartRenderer
+              chartType="pie"
+              chartX={compSrc.chartX}
+              chartY={compSrc.chartY}
+              result={compSrc.result}
+              height={240}
+              isDashboard
+            />
+          ) : <NoChartFallback loading={autoLoading} />}
         </ChartCard>
 
-        {/* Card 3: Bar / Comparison */}
-        <ChartCard icon={BarChart2} title="Comparative Analysis" accentColor="rgba(16,185,129,0.15)">
-          {hasChart ? (
-            <ChartRenderer chartType="bar" chartX={chartX} chartY={chartY}
-              result={result} height={240} isDashboard />
-          ) : (
-            <NoChartFallback />
-          )}
+        {/* Card 3: Comparison / Bar */}
+        <ChartCard
+          icon={BarChart2}
+          title={barSrc?.title || 'Comparative Analysis'}
+          accentColor="rgba(16,185,129,0.15)"
+          badge={barSrc && <SourceBadge isAuto={barSrc.isAuto} />}
+        >
+          {autoLoading && !barSrc ? <ChartSkeleton /> :
+           barSrc ? (
+            <ChartRenderer
+              chartType="bar"
+              chartX={barSrc.chartX}
+              chartY={barSrc.chartY}
+              result={barSrc.result}
+              height={240}
+              isDashboard
+            />
+          ) : <NoChartFallback loading={autoLoading} />}
         </ChartCard>
 
         {/* Card 4: Intelligent Summary */}
         <ChartCard icon={Sparkles} title="Intelligent Summary" accentColor="rgba(245,158,11,0.15)">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-            {/* Stat row */}
             {stats ? (
-              <div style={{ display: 'flex', gap: 10 }}>
-                <StatCard
-                  label="Top Category"
-                  value={stats.top?.[chartX] || 'N/A'}
-                  color="var(--secondary)"
-                  sub={`${stats.yKey}: ${fmt(stats.top?.[stats.yKey])}`}
-                />
-                <StatCard
-                  label="Average"
-                  value={fmt(stats.average)}
-                  color="var(--success)"
-                  sub={stats.yKey}
-                />
-              </div>
+              <>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <StatCard
+                    label="Top Entry"
+                    value={String(stats.top?.[queryChartable ? chartX : autoData?.trend?.chart_x] ?? 'N/A').slice(0, 12)}
+                    color="var(--secondary)"
+                    sub={`${stats.yKey}: ${fmt(stats.top?.[stats.yKey])}`}
+                  />
+                  <StatCard
+                    label="Average"
+                    value={fmt(stats.average)}
+                    color="var(--success)"
+                    sub={stats.yKey}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <StatCard label="Maximum" value={fmt(stats.max)} color="var(--warning)" sub={stats.yKey} />
+                  <StatCard label="Minimum" value={fmt(stats.min)} color="var(--text-muted)" sub={stats.yKey} />
+                </div>
+              </>
             ) : (
-              <div style={{ display: 'flex', gap: 10 }}>
-                <StatCard label="Total Rows" value={result.length} color="var(--secondary)" />
-                <StatCard label="Fields" value={columns?.length || '—'} color="var(--primary-light)" />
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <StatCard label="Total Rows"   value={String(summaryStats.total_rows ?? result?.length ?? '—')} color="var(--secondary)" />
+                <StatCard label="Fields"       value={String(summaryStats.total_cols ?? columns?.length ?? '—')} color="var(--primary-light)" />
+                <StatCard label="Numeric Cols" value={String(summaryStats.numeric_cols ?? '—')} color="var(--success)" />
               </div>
             )}
 
-            {/* Min / Max */}
-            {stats && (
-              <div style={{ display: 'flex', gap: 10 }}>
-                <StatCard label="Maximum" value={fmt(stats.max)} color="var(--warning)" sub={stats.yKey} />
-                <StatCard label="Minimum" value={fmt(stats.min)} color="var(--text-muted)" sub={stats.yKey} />
-              </div>
-            )}
-
-            {/* Anomaly marker */}
+            {/* Anomaly */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
               borderRadius: 10, background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.06)',
@@ -177,7 +320,6 @@ export default function InsightsDashboard({ result, columns, chartX, chartY, que
               </div>
             </div>
 
-            {/* Footer */}
             <div style={{
               marginTop: 'auto', display: 'flex', justifyContent: 'space-between',
               fontSize: 10, color: 'var(--text-faint)', borderTop: '1px solid var(--border)', paddingTop: 10,
@@ -192,16 +334,16 @@ export default function InsightsDashboard({ result, columns, chartX, chartY, que
   );
 }
 
-function NoChartFallback() {
+function NoChartFallback({ loading }) {
   return (
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', gap: 8, color: 'var(--text-faint)', minHeight: 200,
     }}>
-      <AlertTriangle size={28} opacity={0.4} />
-      <p style={{ fontSize: 12, textAlign: 'center' }}>
-        Query returned a single row or<br />no categorical/numeric column pair found.
-      </p>
+      {loading
+        ? <ChartSkeleton />
+        : <p style={{ fontSize: 12, textAlign: 'center', opacity: 0.5 }}>No data available for this chart.</p>
+      }
     </div>
   );
 }

@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
 
   // Only proxy in local dev (when VITE_API_URL is not set to a remote URL)
   const apiUrl = env.VITE_API_URL || ''
+  const proxyTarget = env.VITE_PROXY_TARGET || 'http://localhost:8000'
   const isRemote = apiUrl.startsWith('http')
 
   return {
@@ -15,9 +16,9 @@ export default defineConfig(({ mode }) => {
       // Proxy only applies when running locally against localhost backend
       ...(isRemote ? {} : {
         proxy: {
-          '/upload': 'http://localhost:8000',
-          '/query':  'http://localhost:8000',
-          '/health': 'http://localhost:8000',
+          '/upload': proxyTarget,
+          '/query': proxyTarget,
+          '/health': proxyTarget,
         },
       }),
     },

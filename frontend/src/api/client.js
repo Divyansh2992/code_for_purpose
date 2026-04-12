@@ -2,7 +2,7 @@ const DEFAULT_PROD_API_URL = 'https://code-for-purpose-ynou.onrender.com';
 const configuredBaseUrl = (import.meta.env.VITE_API_URL || '').trim();
 const BASE = (configuredBaseUrl || (import.meta.env.PROD ? DEFAULT_PROD_API_URL : '')).replace(/\/$/, '');
 
-export async function uploadCSV(file, onProgress) {
+export async function uploadCSV(file) {
   const form = new FormData();
   form.append('file', file);
 
@@ -33,6 +33,48 @@ export async function sendQuery({ datasetId, question, mode, sessionId }) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || 'Query failed');
+  }
+  return res.json();
+}
+
+export async function fetchAutoVisualize({ datasetId, mode }) {
+  const res = await fetch(`${BASE}/auto-visualize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset_id: datasetId, mode }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Auto-visualize failed');
+  }
+  return res.json();
+}
+
+export async function fetchCorrelationMatrix({ datasetId, method = 'pearson' }) {
+  const res = await fetch(`${BASE}/correlation-matrix`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset_id: datasetId, method }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Correlation matrix failed');
+  }
+  return res.json();
+}
+
+export async function fetchDataHealth({ datasetId, mode }) {
+  const res = await fetch(`${BASE}/data-health`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset_id: datasetId, mode }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Health fetch failed');
   }
   return res.json();
 }

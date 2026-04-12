@@ -2,10 +2,9 @@ import { useState, useRef } from 'react';
 import { uploadCSV } from '../api/client';
 import { Upload, FileSpreadsheet, CheckCircle } from 'lucide-react';
 
-export default function UploadPanel({ onUpload }) {
+export default function UploadPanel({ onUpload, dataset }) {
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [dataset, setDataset]   = useState(null);
   const [error, setError]       = useState('');
   const [showSchema, setShowSchema] = useState(false);
   const inputRef = useRef();
@@ -19,7 +18,6 @@ export default function UploadPanel({ onUpload }) {
     setUploading(true);
     try {
       const data = await uploadCSV(file);
-      setDataset(data);
       onUpload(data);
     } catch (e) {
       setError(e.message);
@@ -85,6 +83,9 @@ export default function UploadPanel({ onUpload }) {
       {/* Dataset info */}
       {dataset && (
         <div className="dataset-info">
+          <div style={{ color: "#10b981", fontSize: 12 }}>
+            ✅ Dataset loaded successfully
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
             <FileSpreadsheet size={14} color="var(--primary-light)" />
             <div className="dataset-name">{dataset.filename}</div>

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Code2 } from 'lucide-react';
-import DataHealthPanel from './DataHealthPanel';
 import ChartRenderer from './ChartRenderer';
 import ResultTable from './ResultTable';
 
@@ -16,8 +15,15 @@ function UserBubble({ text }) {
 }
 
 function AIBubble({ msg }) {
-  const [showSQL, setShowSQL]     = useState(false);
-  const [showLog, setShowLog]     = useState(false);
+  const [showSQL, setShowSQL] = useState(false);
+  const [showLog, setShowLog] = useState(false);
+
+  const modeLabel =
+    msg.mode === 'smart'
+      ? '⚡ Smart Mode'
+      : msg.mode === 'scalable'
+        ? '🧠 Scalable Mode'
+        : '⚪ Raw Mode';
 
   if (msg.error) {
     return (
@@ -30,8 +36,8 @@ function AIBubble({ msg }) {
     );
   }
 
-  const hasLog  = msg.preprocessing_log?.length > 0;
-  const hasSql  = msg.sql?.trim().length > 0;
+  const hasLog = msg.preprocessing_log?.length > 0;
+  const hasSql = msg.sql?.trim().length > 0;
 
   return (
     <div className="message-row">
@@ -42,7 +48,7 @@ function AIBubble({ msg }) {
           {/* Mode badge */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className={`mode-badge ${msg.mode}`}>
-              {msg.mode === 'smart' ? '⚡ Smart Mode' : '⚪ Raw Mode'}
+              {modeLabel}
             </span>
             {msg.sql && (
               <button
@@ -99,9 +105,6 @@ function AIBubble({ msg }) {
 
           {/* Result table */}
           <ResultTable result={msg.result} columns={msg.columns} />
-
-          {/* Data health */}
-          <DataHealthPanel health={msg.data_health} />
 
           {/* Preprocessing log */}
           {hasLog && (
