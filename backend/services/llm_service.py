@@ -30,13 +30,28 @@ def generate_sql(
     The table is always named "data".
     Returns a clean SQL string (no markdown, no explanation).
     """
-    schema_lines = "\n".join(
-        f"  - {c['name']} ({c['type']}, null%={c.get('null_pct', 0):.1f}"
-        + (f", mean={c['mean']:.2f}" if c.get("mean") is not None else "")
-        + ")"
-        for c in schema
-    )
-    sample_str = json.dumps(_serialise(sample[:5]), indent=2)
+    # Classify columns clearly so the LLM knows what's numeric vs text
+    numeric_cols = []
+    text_cols = []
+    schema_lines_parts = []
+    for c in schema:
+        col_type = c.get("type", "").upper()
+        is_num = any(t in col_type for t in
+                     ["INT", "FLOAT", "DOUBLE", "DECIMAL", "BIGINT", "HUGEINT", "REAL", "NUMERIC"])
+        kind = "NUMERIC" if is_num else "TEXT"
+        if is_num:
+            numeric_cols.append(c["name"])
+        else:
+            text_cols.append(c["name"])
+        schema_lines_parts.append(
+            f"  - \"{c['name']}\" ({c['type']} | {kind}, null%={c.get('null_pct', 0):.1f}"
+            + (f", mean={c['mean']:.2f}" if c.get("mean") is not None else "")
+            + ")"
+        )
+    schema_lines = "\n".join(schema_lines_parts)
+    numeric_list = ", ".join(f'"{c}"' for c in numeric_cols) or "(none)"
+    text_list    = ", ".join(f'"{c}"' for c in text_cols)    or "(none)"
+    sample_str   = json.dumps(_serialise(sample[:5]), indent=2)
 
     system_prompt = (
         "You are an expert DuckDB SQL analyst.\n"
@@ -45,9 +60,25 @@ def generate_sql(
         "2. Return ONLY the SQL query — no markdown, no explanation, no preamble.\n"
         "3. Always quote column names with double-quotes to handle spaces/special chars.\n"
         "4. Use DuckDB-compatible syntax (e.g. PERCENTILE_CONT for percentiles).\n"
-        "5. For comparative questions (e.g. 'versus', 'compare'), ensure you GROUP BY the relevant column to show a comparison.\n"
-        "6. If the user asks for a plot, graph, or chart, ensure the query returns at least one categorical/date column and one numeric column for visualization.\n"
-        "7. Keep the query concise and efficient.\n\n"
+        "5. For comparative questions (e.g. 'versus', 'compare'), GROUP BY the relevant column.\n"
+        "6. If the user asks for a plot/graph/chart, return at least one TEXT column and one NUMERIC column.\n"
+        "7. Keep the query concise and efficient.\n"
+        "CRITICAL RULES FOR STATISTICAL FUNCTIONS:\n"
+        "8. CORR(), STDDEV(), AVG(), VAR(), MIN(), MAX() only work on NUMERIC columns.\n"
+        "   NEVER call these functions on TEXT columns — that causes a runtime error.\n"
+        f"   NUMERIC columns in this table: {numeric_list}\n"
+        f"   TEXT columns in this table:    {text_list}\n"
+        "9. For a CORRELATION MATRIX, use only NUMERIC columns. Build it with multiple\n"
+        "   CORR(CAST(col1 AS DOUBLE), CAST(col2 AS DOUBLE)) expressions in one SELECT.\n"
+        "10. For SKEWNESS of all parameters, use UNION ALL to return one row per column:\n"
+        "    SELECT 'col_name' AS parameter, \n"
+        "      (AVG(CAST(col AS DOUBLE)) - PERCENTILE_CONT(0.5) WITHIN GROUP\n"
+        "       (ORDER BY CAST(col AS DOUBLE))) / NULLIF(STDDEV(CAST(col AS DOUBLE)),0) AS skewness\n"
+        "    FROM data\n"
+        "    UNION ALL ...\n"
+        "    Only include NUMERIC columns in skewness queries.\n"
+        "11. For DISTRIBUTION queries, use NTILE or bucket the numeric column; return\n"
+        "    a category label and a count — never return raw rows.\n\n"
         f"Table schema:\n{schema_lines}\n\n"
         f"Sample rows (first 5):\n{sample_str}"
     )
@@ -64,11 +95,12 @@ def generate_sql(
         model=MODEL,
         messages=messages,
         temperature=0.05,
-        max_tokens=600,
+        max_tokens=800,
     )
 
     raw = response.choices[0].message.content.strip()
     return _clean_sql(raw)
+
 
 
 # ── Explanation & Insights ─────────────────────────────────────────────────────

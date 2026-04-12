@@ -1,5 +1,23 @@
 import { useState, useRef, useCallback } from 'react';
-import { sendQuery } from '../api/client';
+import { sendQuery, fetchCorrelationMatrix } from '../api/client';
+
+// Keywords that should route to the pandas /correlation-matrix endpoint
+// instead of the DuckDB /query endpoint.
+const CORR_KEYWORDS = [
+  'correlation matrix',
+  'corr matrix',
+  'correlation heatmap',
+  'draw correlation',
+  'show correlation',
+  'plot correlation',
+  'generate correlation',
+  'heatmap',
+];
+
+function isCorrRequest(question) {
+  const q = question.toLowerCase();
+  return CORR_KEYWORDS.some((kw) => q.includes(kw));
+}
 
 /**
  * Manages chat state: messages, loading, session context memory.
@@ -21,18 +39,38 @@ export function useChat(datasetId, mode) {
       setIsLoading(true);
 
       try {
-        const data = await sendQuery({
-          datasetId,
-          question,
-          mode,
-          sessionId,
-        });
+        let aiMsg;
 
-        const aiMsg = {
-          role: 'ai',
-          id: Date.now() + 1,
-          ...data,
-        };
+        if (isCorrRequest(question)) {
+          // ── Correlation matrix: use pandas endpoint, not DuckDB SQL ──────
+          const data = await fetchCorrelationMatrix({ datasetId });
+          aiMsg = {
+            role: 'ai',
+            id: Date.now() + 1,
+            sql: `# Python (pandas)\ndf.select_dtypes(include='number').corr(method='${data.method}')`,
+            result: data.data,          // [{col_a, col_b, correlation}]
+            columns: ['col_a', 'col_b', 'correlation'],
+            chart_type: 'correlation_matrix',
+            chart_x: null,
+            chart_y: [],
+            explanation: `Pearson correlation matrix computed using pandas across ${data.columns.length} numeric column(s): ${data.columns.join(', ')}.`,
+            insights: [
+              'Values close to +1.0 indicate strong positive correlation.',
+              'Values close to -1.0 indicate strong negative correlation.',
+              'Values near 0 indicate weak or no linear relationship.',
+            ],
+            why_analysis: data.note || '',
+            data_health: { missing_pct: 0, outliers: 0, rows_used: 0, confidence: 100 },
+            preprocessing_log: ['🐍 Computed via pandas df.corr() — no SQL required.'],
+            mode,
+            error: null,
+          };
+        } else {
+          // ── Normal query: LLM → DuckDB SQL ───────────────────────────────
+          const data = await sendQuery({ datasetId, question, mode, sessionId });
+          aiMsg = { role: 'ai', id: Date.now() + 1, ...data };
+        }
+
         setMessages((prev) => [...prev, aiMsg]);
       } catch (err) {
         const errMsg = {

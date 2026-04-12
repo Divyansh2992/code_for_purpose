@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   BarChart, Bar,
   LineChart, Line,
@@ -7,6 +8,141 @@ import {
 } from 'recharts';
 
 const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
+
+// ── Correlation Heatmap ────────────────────────────────────────────────────────
+function correlationColor(value) {
+  // -1 → red, 0 → dark, +1 → purple-cyan
+  if (value === null || value === undefined || isNaN(value)) return 'rgba(255,255,255,0.05)';
+  const v = Math.max(-1, Math.min(1, value));
+  if (v >= 0) {
+    // 0 → dark slate, 1 → vivid purple
+    const r = Math.round(17 + v * (124 - 17));
+    const g = Math.round(24 + v * (58 - 24));
+    const b = Math.round(39 + v * (237 - 39));
+    return `rgb(${r},${g},${b})`;
+  } else {
+    // 0 → dark slate, -1 → vivid red
+    const abs = Math.abs(v);
+    const r = Math.round(17 + abs * (239 - 17));
+    const g = Math.round(24 + abs * (68 - 24));
+    const b = Math.round(39 + abs * (68 - 39));
+    return `rgb(${r},${g},${b})`;
+  }
+}
+
+function CorrelationHeatmap({ result }) {
+  const [tooltip, setTooltip] = useState(null);
+
+  if (!result?.length) return null;
+
+  // Build unique sorted label lists
+  const cols = [...new Set(result.map(r => r.col_a))].sort();
+  const n = cols.length;
+
+  // Build lookup map { "col_a::col_b" -> correlation }
+  const lookup = {};
+  result.forEach(r => { lookup[`${r.col_a}::${r.col_b}`] = r.correlation; });
+
+  const cellSize = Math.max(44, Math.min(80, Math.floor(480 / n)));
+  const labelW = 110;
+  const totalW = labelW + n * cellSize;
+  const totalH = 24 + n * cellSize;
+
+  return (
+    <div style={{ overflowX: 'auto', overflowY: 'auto', position: 'relative' }}>
+      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: '0.05em' }}>
+        🔥 CORRELATION MATRIX — {n} numeric columns
+      </p>
+      <div style={{ position: 'relative', display: 'inline-block', minWidth: totalW }}>
+        {/* Column header labels */}
+        <div style={{ display: 'flex', marginLeft: labelW, marginBottom: 2 }}>
+          {cols.map(col => (
+            <div key={col} style={{
+              width: cellSize, fontSize: 9, color: 'var(--text-muted)', fontWeight: 600,
+              textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap', padding: '0 2px',
+              transform: 'rotate(-30deg)', transformOrigin: 'bottom left',
+              height: 40, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+            }}>
+              {col.length > 10 ? col.slice(0, 9) + '…' : col}
+            </div>
+          ))}
+        </div>
+        {/* Rows */}
+        {cols.map(rowCol => (
+          <div key={rowCol} style={{ display: 'flex', alignItems: 'center' }}>
+            {/* Row label */}
+            <div style={{
+              width: labelW, fontSize: 10, color: 'var(--text-muted)', fontWeight: 600,
+              textAlign: 'right', paddingRight: 8, flex: '0 0 auto',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {rowCol.length > 14 ? rowCol.slice(0, 13) + '…' : rowCol}
+            </div>
+            {/* Cells */}
+            {cols.map(colCol => {
+              const val = lookup[`${rowCol}::${colCol}`];
+              const displayVal = (val === null || val === undefined || isNaN(val))
+                ? 'N/A' : Number(val).toFixed(2);
+              const bg = correlationColor(val);
+              const isDiag = rowCol === colCol;
+              return (
+                <div
+                  key={colCol}
+                  onMouseEnter={e => setTooltip({ x: e.clientX, y: e.clientY, rowCol, colCol, val })}
+                  onMouseLeave={() => setTooltip(null)}
+                  style={{
+                    width: cellSize, height: cellSize, background: bg,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: n <= 6 ? 11 : 9, color: isDiag ? '#fff' : (Math.abs(val ?? 0) > 0.5 ? '#fff' : 'var(--text-muted)'),
+                    fontWeight: isDiag ? 700 : 500, cursor: 'default',
+                    border: isDiag ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.03)',
+                    transition: 'filter 0.15s', borderRadius: 2,
+                    userSelect: 'none',
+                  }}
+                >
+                  {n <= 8 ? displayVal : (isDiag ? '1.0' : '')}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+        {/* Legend */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, marginLeft: labelW }}>
+          <span style={{ fontSize: 10, color: '#ef4444' }}>-1.0</span>
+          <div style={{
+            flex: 1, height: 8, borderRadius: 4,
+            background: 'linear-gradient(to right, rgb(239,68,68), rgb(17,24,39), rgb(124,58,237))',
+            maxWidth: Math.min(n * cellSize, 240),
+          }} />
+          <span style={{ fontSize: 10, color: '#7c3aed' }}>+1.0</span>
+        </div>
+      </div>
+      {/* Floating tooltip */}
+      {tooltip && (
+        <div style={{
+          position: 'fixed', left: tooltip.x + 12, top: tooltip.y + 12,
+          background: 'rgba(13,18,36,0.97)', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: 8, padding: '8px 12px', fontSize: 12, zIndex: 9999,
+          boxShadow: '0 8px 30px rgba(0,0,0,0.6)', pointerEvents: 'none',
+        }}>
+          <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
+            {tooltip.rowCol} <span style={{ color: '#7c3aed' }}>↔</span> {tooltip.colCol}
+          </div>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>
+            {(tooltip.val === null || tooltip.val === undefined || isNaN(tooltip.val))
+              ? 'N/A' : Number(tooltip.val).toFixed(4)}
+          </div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 2 }}>
+            {Math.abs(tooltip.val ?? 0) >= 0.7 ? '🔴 Strong correlation' :
+             Math.abs(tooltip.val ?? 0) >= 0.4 ? '🟡 Moderate correlation' :
+             '🟢 Weak/no correlation'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
@@ -35,6 +171,16 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export default function ChartRenderer({ chartType, chartX, chartY, result, height = 220, isDashboard = false }) {
+  // ── Correlation matrix: special renderer, bypass Recharts entirely
+  if (chartType === 'correlation_matrix') {
+    return (
+      <div className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}>
+        {!isDashboard && <p className="chart-title">🔥 Correlation Matrix</p>}
+        <CorrelationHeatmap result={result} />
+      </div>
+    );
+  }
+
   if (!chartType || !chartX || !chartY?.length || !result?.length) return null;
 
   // Prepare Recharts data (cap at 30 for dashboard cleanliness, 50 for chat)

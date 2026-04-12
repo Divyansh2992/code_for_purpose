@@ -19,6 +19,7 @@ router = APIRouter()
 DATE_KEYWORDS = {"date", "month", "year", "quarter", "week", "day", "time", "period", "created", "updated", "timestamp"}
 
 
+
 @router.post("/query", response_model=QueryResponse)
 async def run_query(req: QueryRequest) -> QueryResponse:
     # ── 1. Validate dataset ────────────────────────────────────────────────
@@ -109,7 +110,7 @@ async def run_query(req: QueryRequest) -> QueryResponse:
     if mode == "scalable" and cleaned_df_for_health is not None:
         health = data_health.compute_health_from_dataframe(cleaned_df_for_health)
     else:
-        health = data_health.compute_health(schema, outlier_count, len(rows) if rows else row_count)
+        health = data_health.compute_health(schema, outlier_count, row_count)
 
     # ── 6. LLM explanation ────────────────────────────────────────────────
     explanation_data = {"explanation": "Query executed successfully.", "insights": [], "why_analysis": ""}
