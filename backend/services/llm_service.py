@@ -2,11 +2,16 @@
 LLM Service — Groq-powered NL→SQL generation and result explanation.
 Uses llama3-70b-8192 for fast, accurate responses.
 Schema + sample (≤5 rows) are sent — never the full dataset.
+
+NEW:
+  • SQL Validator  — blocks DROP, DELETE, INSERT, UPDATE, DDL, etc.
+  • Semantic Layer — resolves business terms to actual column names via Groq
+                     so "revenue" → amount, "customer" → user_id, etc.
 """
 import os
 import re
 import json
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 from groq import Groq
 from dotenv import load_dotenv
@@ -17,41 +22,280 @@ _client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 MODEL = "llama-3.3-70b-versatile"
 
 
-# ── SQL Generation ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# SQL VALIDATOR
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Patterns that must NEVER appear in generated SQL
+_DANGEROUS_PATTERNS: List[re.Pattern] = [
+    re.compile(r"\bDROP\b",        re.IGNORECASE),
+    re.compile(r"\bDELETE\b",      re.IGNORECASE),
+    re.compile(r"\bTRUNCATE\b",    re.IGNORECASE),
+    re.compile(r"\bINSERT\b",      re.IGNORECASE),
+    re.compile(r"\bUPDATE\b",      re.IGNORECASE),
+    re.compile(r"\bALTER\b",       re.IGNORECASE),
+    re.compile(r"\bCREATE\b",      re.IGNORECASE),
+    re.compile(r"\bREPLACE\b",     re.IGNORECASE),
+    re.compile(r"\bMERGE\b",       re.IGNORECASE),
+    re.compile(r"\bEXECUTE\b",     re.IGNORECASE),
+    re.compile(r"\bEXEC\b",        re.IGNORECASE),
+    re.compile(r"\bCALL\b",        re.IGNORECASE),
+    re.compile(r"\bGRANT\b",       re.IGNORECASE),
+    re.compile(r"\bREVOKE\b",      re.IGNORECASE),
+    re.compile(r"\bCOPY\b",        re.IGNORECASE),   # DuckDB COPY TO / FROM
+    re.compile(r"\bATTACH\b",      re.IGNORECASE),   # DuckDB ATTACH DATABASE
+    re.compile(r"\bDETACH\b",      re.IGNORECASE),
+    re.compile(r"\bLOAD\b",        re.IGNORECASE),   # DuckDB LOAD extension
+    re.compile(r"\bINSTALL\b",     re.IGNORECASE),   # DuckDB INSTALL extension
+    re.compile(r"--",                              ),  # SQL comments (injection vector)
+    re.compile(r"/\*",                             ),  # Block comment open
+    re.compile(r"\bINTO\s+OUTFILE\b", re.IGNORECASE), # MySQL-style file write
+    re.compile(r"\bxp_cmdshell\b", re.IGNORECASE),    # MSSQL shell
+    re.compile(r"\bINFORMATION_SCHEMA\b", re.IGNORECASE),  # meta-tables
+    re.compile(r"\bpg_\w+",        re.IGNORECASE),    # postgres internals
+    re.compile(r"\bsqlite_\w+",    re.IGNORECASE),    # sqlite internals
+]
+
+# The ONLY DML keyword we allow
+_ALLOWED_LEADING_KEYWORDS = re.compile(
+    r"^\s*(SELECT|WITH)\b", re.IGNORECASE
+)
+
+
+class SQLValidationError(ValueError):
+    """Raised when generated SQL fails safety checks."""
+    pass
+
+
+def validate_sql(sql: str) -> str:
+    """
+    Validate that a SQL string is read-only and safe to execute.
+
+    Rules:
+      1. Must start with SELECT or a CTE (WITH … SELECT).
+      2. Must not contain any destructive / DDL / admin keyword.
+      3. Must not contain comment sequences (injection vectors).
+
+    Returns the original sql unchanged if valid.
+    Raises SQLValidationError with a human-readable reason if not.
+    """
+    stripped = sql.strip()
+
+    # Rule 1 — must open with SELECT or WITH
+    if not _ALLOWED_LEADING_KEYWORDS.match(stripped):
+        first_word = stripped.split()[0].upper() if stripped.split() else "?"
+        raise SQLValidationError(
+            f"Only SELECT queries are allowed. Got '{first_word}' instead."
+        )
+
+    # Rule 2 & 3 — no dangerous keywords or comment markers
+    for pattern in _DANGEROUS_PATTERNS:
+        if pattern.search(stripped):
+            matched = pattern.pattern
+            raise SQLValidationError(
+                f"SQL contains a forbidden keyword or pattern: '{matched}'. "
+                "Only read-only SELECT queries are permitted."
+            )
+
+    return sql
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SEMANTIC LAYER
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SemanticLayer:
+    """
+    Maintains a business-term → column mapping and uses the Groq LLM to
+    infer new mappings on the fly from schema + sample data.
+
+    Usage:
+        sem = SemanticLayer(schema, sample)
+        enriched_question = sem.enrich(user_question)
+
+    The enriched question appends a mapping hint so the SQL-generation LLM
+    knows which actual column names to use.
+    """
+
+    def __init__(
+        self,
+        schema: List[Dict[str, Any]],
+        sample: List[Dict[str, Any]],
+        extra_mappings: Optional[Dict[str, str]] = None,
+    ) -> None:
+        self.schema = schema
+        self.sample = sample
+        # Start with any hard-coded project-specific aliases
+        self._mappings: Dict[str, str] = dict(extra_mappings or {})
+        self._column_names: List[str] = [c["name"] for c in schema]
+
+    # ── Public ────────────────────────────────────────────────────────────────
+
+    def enrich(self, question: str) -> str:
+        """
+        Detect business terms in the question that don't literally match any
+        column name, resolve them via the LLM, and return the question with
+        an appended mapping hint.
+        """
+        unmapped_terms = self._detect_unmapped_terms(question)
+
+        if unmapped_terms:
+            new_mappings = self._resolve_via_llm(unmapped_terms)
+            self._mappings.update(new_mappings)
+
+        if not self._mappings:
+            return question  # nothing to annotate
+
+        active = {
+            term: col
+            for term, col in self._mappings.items()
+            if re.search(rf"\b{re.escape(term)}\b", question, re.IGNORECASE)
+        }
+
+        if not active:
+            return question
+
+        hint_parts = [f'"{term}" refers to column "{col}"' for term, col in active.items()]
+        hint = "Note — semantic mappings: " + "; ".join(hint_parts) + "."
+        return f"{question}\n\n[{hint}]"
+
+    def get_mappings(self) -> Dict[str, str]:
+        """Return a copy of all currently known business-term mappings."""
+        return dict(self._mappings)
+
+    def add_mapping(self, term: str, column: str) -> None:
+        """Manually register or override a business-term → column mapping."""
+        self._mappings[term.lower()] = column
+
+    # ── Private ───────────────────────────────────────────────────────────────
+
+    def _detect_unmapped_terms(self, question: str) -> List[str]:
+        """
+        Extract noun-like tokens from the question that:
+          (a) are not a literal column name (case-insensitive), and
+          (b) are not already in our mappings dict.
+        We use a light heuristic — words ≥4 chars that look like domain nouns.
+        """
+        col_names_lower = {c.lower() for c in self._column_names}
+        known_lower = set(self._mappings.keys())
+
+        # Tokenise: lower-case alpha words ≥ 4 chars
+        tokens = re.findall(r"\b[a-zA-Z]{4,}\b", question)
+        # Stop-words we never want to resolve
+        stopwords = {
+            "show", "give", "list", "what", "which", "where", "when", "have",
+            "with", "this", "that", "from", "each", "also", "only", "more",
+            "than", "over", "into", "been", "were", "does", "data", "table",
+            "query", "rows", "column", "columns", "total", "count", "average",
+            "group", "order", "limit", "percent", "number", "values", "plot",
+            "chart", "graph", "between", "compare", "versus", "against",
+        }
+
+        candidates = []
+        seen = set()
+        for tok in tokens:
+            tl = tok.lower()
+            if tl in seen or tl in stopwords:
+                continue
+            seen.add(tl)
+            if tl not in col_names_lower and tl not in known_lower:
+                candidates.append(tok)
+
+        return candidates
+
+    def _resolve_via_llm(self, terms: List[str]) -> Dict[str, str]:
+        """
+        Ask the Groq LLM which column (if any) each business term maps to.
+        Returns only terms that confidently map to an existing column.
+        """
+        schema_lines = "\n".join(
+            f"  - {c['name']} ({c['type']})" for c in self.schema
+        )
+        sample_str = json.dumps(_serialise(self.sample[:3]), indent=2)
+
+        prompt = (
+            f"You are a data dictionary expert.\n\n"
+            f"Table columns:\n{schema_lines}\n\n"
+            f"Sample rows:\n{sample_str}\n\n"
+            f"Business terms to map: {json.dumps(terms)}\n\n"
+            "For each business term, find the SINGLE best matching column name "
+            "from the table above. If there is no reasonable match, omit that term.\n\n"
+            "Return ONLY a valid JSON object mapping each resolved term to its column name. "
+            "No markdown, no explanation. Example:\n"
+            '{"revenue": "amount", "customer": "user_id"}'
+        )
+
+        try:
+            response = _client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a precise data dictionary assistant. "
+                            "Return only a JSON object, nothing else."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                max_tokens=300,
+            )
+
+            raw = response.choices[0].message.content.strip()
+            raw = re.sub(r"```json\s*|```", "", raw).strip()
+            mappings: Dict[str, str] = json.loads(raw)
+
+            # Safety: only keep mappings whose target column actually exists
+            valid = {
+                term.lower(): col
+                for term, col in mappings.items()
+                if col in self._column_names
+            }
+            return valid
+
+        except Exception:
+            # Semantic resolution is best-effort — never crash the pipeline
+            return {}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SQL Generation  (now uses SemanticLayer + validate_sql)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def generate_sql(
     schema: List[Dict[str, Any]],
     sample: List[Dict[str, Any]],
     question: str,
     history: List[Dict[str, str]] = [],
+    semantic_layer: Optional[SemanticLayer] = None,
 ) -> str:
     """
     Convert a natural language question to a DuckDB SQL query.
+
+    Steps:
+      1. Enrich the question with semantic mappings (if a SemanticLayer is given).
+      2. Call the Groq LLM to produce SQL.
+      3. Validate the SQL is read-only and safe.
+
     The table is always named "data".
-    Returns a clean SQL string (no markdown, no explanation).
+    Returns a clean, validated SQL string (no markdown, no explanation).
+    Raises SQLValidationError if the LLM produces unsafe SQL.
     """
-    # Classify columns clearly so the LLM knows what's numeric vs text
-    numeric_cols = []
-    text_cols = []
-    schema_lines_parts = []
-    for c in schema:
-        col_type = c.get("type", "").upper()
-        is_num = any(t in col_type for t in
-                     ["INT", "FLOAT", "DOUBLE", "DECIMAL", "BIGINT", "HUGEINT", "REAL", "NUMERIC"])
-        kind = "NUMERIC" if is_num else "TEXT"
-        if is_num:
-            numeric_cols.append(c["name"])
-        else:
-            text_cols.append(c["name"])
-        schema_lines_parts.append(
-            f"  - \"{c['name']}\" ({c['type']} | {kind}, null%={c.get('null_pct', 0):.1f}"
-            + (f", mean={c['mean']:.2f}" if c.get("mean") is not None else "")
-            + ")"
-        )
-    schema_lines = "\n".join(schema_lines_parts)
-    numeric_list = ", ".join(f'"{c}"' for c in numeric_cols) or "(none)"
-    text_list    = ", ".join(f'"{c}"' for c in text_cols)    or "(none)"
-    sample_str   = json.dumps(_serialise(sample[:5]), indent=2)
+    # ── 1. Semantic enrichment ────────────────────────────────────────────────
+    if semantic_layer is None:
+        semantic_layer = SemanticLayer(schema, sample)
+
+    enriched_question = semantic_layer.enrich(question)
+
+    # ── 2. Build prompt ───────────────────────────────────────────────────────
+    schema_lines = "\n".join(
+        f"  - {c['name']} ({c['type']}, null%={c.get('null_pct', 0):.1f}"
+        + (f", mean={c['mean']:.2f}" if c.get("mean") is not None else "")
+        + ")"
+        for c in schema
+    )
+    sample_str = json.dumps(_serialise(sample[:5]), indent=2)
 
     system_prompt = (
         "You are an expert DuckDB SQL analyst.\n"
@@ -60,37 +304,25 @@ def generate_sql(
         "2. Return ONLY the SQL query — no markdown, no explanation, no preamble.\n"
         "3. Always quote column names with double-quotes to handle spaces/special chars.\n"
         "4. Use DuckDB-compatible syntax (e.g. PERCENTILE_CONT for percentiles).\n"
-        "5. For comparative questions (e.g. 'versus', 'compare'), GROUP BY the relevant column.\n"
-        "6. If the user asks for a plot/graph/chart, return at least one TEXT column and one NUMERIC column.\n"
+        "5. For comparative questions (e.g. 'versus', 'compare'), ensure you GROUP BY "
+        "the relevant column to show a comparison.\n"
+        "6. If the user asks for a plot, graph, or chart, ensure the query returns at "
+        "least one categorical/date column and one numeric column for visualization.\n"
         "7. Keep the query concise and efficient.\n"
-        "CRITICAL RULES FOR STATISTICAL FUNCTIONS:\n"
-        "8. CORR(), STDDEV(), AVG(), VAR(), MIN(), MAX() only work on NUMERIC columns.\n"
-        "   NEVER call these functions on TEXT columns — that causes a runtime error.\n"
-        f"   NUMERIC columns in this table: {numeric_list}\n"
-        f"   TEXT columns in this table:    {text_list}\n"
-        "9. For a CORRELATION MATRIX, use only NUMERIC columns. Build it with multiple\n"
-        "   CORR(CAST(col1 AS DOUBLE), CAST(col2 AS DOUBLE)) expressions in one SELECT.\n"
-        "10. For SKEWNESS of all parameters, use UNION ALL to return one row per column:\n"
-        "    SELECT 'col_name' AS parameter, \n"
-        "      (AVG(CAST(col AS DOUBLE)) - PERCENTILE_CONT(0.5) WITHIN GROUP\n"
-        "       (ORDER BY CAST(col AS DOUBLE))) / NULLIF(STDDEV(CAST(col AS DOUBLE)),0) AS skewness\n"
-        "    FROM data\n"
-        "    UNION ALL ...\n"
-        "    Only include NUMERIC columns in skewness queries.\n"
-        "11. For DISTRIBUTION queries, use NTILE or bucket the numeric column; return\n"
-        "    a category label and a count — never return raw rows.\n\n"
+        "8. NEVER use DROP, DELETE, INSERT, UPDATE, ALTER, CREATE or any DDL/DML that "
+        "modifies data. Only SELECT statements are allowed.\n\n"
         f"Table schema:\n{schema_lines}\n\n"
         f"Sample rows (first 5):\n{sample_str}"
     )
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    # Inject conversation history for follow-up context (last 6 turns = 3 exchanges)
     for h in history[-6:]:
         messages.append(h)
 
-    messages.append({"role": "user", "content": f"Question: {question}"})
+    messages.append({"role": "user", "content": f"Question: {enriched_question}"})
 
+    # ── 3. Call LLM ───────────────────────────────────────────────────────────
     response = _client.chat.completions.create(
         model=MODEL,
         messages=messages,
@@ -99,11 +331,17 @@ def generate_sql(
     )
 
     raw = response.choices[0].message.content.strip()
-    return _clean_sql(raw)
+    sql = _clean_sql(raw)
+
+    # ── 4. Validate (raises SQLValidationError if unsafe) ─────────────────────
+    validate_sql(sql)
+
+    return sql
 
 
-
-# ── Explanation & Insights ─────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Explanation & Insights  (unchanged logic, kept for completeness)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def explain_result(
     question: str,
@@ -152,7 +390,9 @@ def explain_result(
     return _parse_explanation(content)
 
 
-# ── Auto-Suggested Questions ───────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Auto-Suggested Questions  (unchanged)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def suggest_questions(
     schema: List[Dict[str, Any]],
@@ -199,13 +439,14 @@ def suggest_questions(
         ]
 
 
-# ── Private helpers ────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Private helpers
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _clean_sql(raw: str) -> str:
     """Strip markdown fences and leading/trailing whitespace."""
     raw = re.sub(r"```sql\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"```\s*", "", raw)
-    # Remove any lines that are clearly not SQL (e.g. explanatory sentences)
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     return "\n".join(lines).strip()
 
@@ -218,10 +459,10 @@ def _parse_explanation(content: str) -> Dict[str, Any]:
     current = None
 
     lines = content.splitlines()
-    for i, line in enumerate(lines):
+    for line in lines:
         line = line.strip()
         upper = line.upper()
-        
+
         if upper.startswith("EXPLANATION:"):
             explanation = line[len("EXPLANATION:"):].strip()
             current = "explanation"
@@ -230,16 +471,20 @@ def _parse_explanation(content: str) -> Dict[str, Any]:
         elif upper.startswith("WHY:"):
             why = line[len("WHY:"):].strip()
             current = "why"
-        elif (line.startswith("•") or line.startswith("-") or (re.match(r"^\d+\.", line))) and current == "insights":
+        elif (
+            (line.startswith("•") or line.startswith("-") or re.match(r"^\d+\.", line))
+            and current == "insights"
+        ):
             txt = re.sub(r"^[•\-\d\.]+\s*", "", line).strip()
             if txt:
                 insights.append(txt)
-        elif current == "explanation" and line and not any(h in upper for h in ["INSIGHTS:", "WHY:"]):
+        elif current == "explanation" and line and not any(
+            h in upper for h in ["INSIGHTS:", "WHY:"]
+        ):
             explanation = (explanation + " " + line).strip()
         elif current == "why" and line:
             why = (why + " " + line).strip()
 
-    # Fallback: if no headers found, treat first 2 lines as explanation
     if not explanation and lines:
         explanation = lines[0].strip()
         if len(lines) > 1 and not lines[1].strip().startswith(("-", "•")):
@@ -256,6 +501,7 @@ def _serialise(obj: Any) -> Any:
     """Make Python objects JSON-serialisable (handle NaN, timestamps, etc.)."""
     import math
     import datetime
+
     if isinstance(obj, list):
         return [_serialise(item) for item in obj]
     if isinstance(obj, dict):

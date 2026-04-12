@@ -1,10 +1,12 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import './index.css';
 import UploadPanel from './components/UploadPanel';
 import ModeToggle from './components/ModeToggle';
 import SuggestedQuestions from './components/SuggestedQuestions';
 import ChatWindow from './components/ChatWindow';
 import InsightsDashboard from './components/InsightsDashboard';
+import DataHealthPanel from './components/DataHealthPanel';
 import DataHealthPanel from './components/DataHealthPanel';
 import { Database, MessageSquare, BarChart3 } from 'lucide-react';
 import { fetchDataHealth } from './api/client';
@@ -37,7 +39,23 @@ export default function App() {
     } else {
       setDataHealth(null);
     }
+    setLatestResult(null);
+    setLatestQuestion('');
+    // Instantly show raw health from upload schema (no API needed)
+    if (data?.columns?.length) {
+      const avgMissing = data.columns.reduce((s, c) => s + (c.null_pct || 0), 0) / data.columns.length;
+      const missingPenalty = Math.min(avgMissing * 1.5, 40);
+      setDataHealth({
+        missing_pct: parseFloat(avgMissing.toFixed(2)),
+        outliers: 0,
+        rows_used: data.row_count || 0,
+        confidence: parseFloat(Math.max(100 - missingPenalty, 0).toFixed(1)),
+      });
+    } else {
+      setDataHealth(null);
+    }
   }, []);
+
 
 
   const handleSuggestion = useCallback((q) => {
@@ -45,10 +63,14 @@ export default function App() {
   }, []);
 
   // Capture query result from ChatWindow; update health panel persistently
+  // Capture query result from ChatWindow; update health panel persistently
   const handleQueryResult = useCallback((res) => {
     if (res && !res.error) {
       setLatestResult(res);
       setLatestQuestion(res._question || '');
+      if (res.data_health) {
+        setDataHealth(res.data_health);
+      }
       if (res.data_health) {
         setDataHealth(res.data_health);
       }
@@ -112,6 +134,14 @@ export default function App() {
             </>
           )}
 
+          {/* Persistent Data Health Panel — shown once dataset+mode are known */}
+          {dataHealth && (
+            <>
+              <div className="divider" />
+              <DataHealthPanel health={dataHealth} loading={healthLoading} />
+            </>
+          )}
+
           {/* Footer */}
           <div style={{ marginTop: 'auto', paddingTop: 8 }}>
             <p style={{ fontSize: 10, color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.6 }}>
@@ -147,13 +177,21 @@ export default function App() {
 
         {/* Keep ChatWindow mounted always to preserve chat state; hide with CSS when in dashboard view */}
         <div style={{ display: view === 'chat' ? 'contents' : 'none' }}>
+        {/* Keep ChatWindow mounted always to preserve chat state; hide with CSS when in dashboard view */}
+        <div style={{ display: view === 'chat' ? 'contents' : 'none' }}>
           <ChatWindow
             datasetId={dataset?.dataset_id || null}
             mode={mode}
             pendingQuestion={pendingQuestion}
             onPendingConsumed={() => setPendingQuestion('')}
             onResult={handleQueryResult}
+            onResult={handleQueryResult}
           />
+        </div>
+        {view === 'dashboard' && (
+          <InsightsDashboard
+            datasetId={dataset?.dataset_id || null}
+            mode={mode}
         </div>
         {view === 'dashboard' && (
           <InsightsDashboard
