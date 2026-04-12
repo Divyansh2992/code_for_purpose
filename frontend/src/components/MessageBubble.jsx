@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Code2 } from 'lucide-react';
-import DataHealthPanel from './DataHealthPanel';
 import ChartRenderer from './ChartRenderer';
 import ResultTable from './ResultTable';
 
@@ -106,9 +105,6 @@ function AIBubble({ msg }) {
 
           {/* Result table */}
           <ResultTable result={msg.result} columns={msg.columns} />
-
-          {/* Data health */}
-          <DataHealthPanel health={msg.data_health} />
 
           {/* Preprocessing log */}
           {hasLog && (

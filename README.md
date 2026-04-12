@@ -4,9 +4,103 @@
 
 ---
 
+<details>
+<summary><strong>📦 System & Docker Architecture (click to expand)</strong></summary>
+
+### 🐳 Docker Compose Setup
+
+<p align="center">
+<img src="https://dummyimage.com/600x1/ffffff/ffffff" width="1" height="1" style="display:none;" alt=""/>
+</p>
+
+#### Services:
+
+- <strong>backend</strong>: Python 3.11, FastAPI, DuckDB, Groq LLM, all data/AI logic
+  - Mounts <code>./backend/uploads</code> for persistent CSV storage
+  - Exposes <code>8000</code> (API)
+- <strong>frontend</strong>: React 19, Vite, Recharts, glassmorphism UI
+  - Exposes <code>5173</code> (UI)
+  - Proxies API to backend
+
+#### docker-compose.yml
+
+```yaml
+services:
+  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    volumes:
+      - ./backend/uploads:/app/uploads
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    ports: ["5173:5173"]
+    environment:
+      VITE_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+```
+
+#### Container Flow
+
+<div align="center">
+
+```mermaid
+flowchart TD
+    A[User] -->|Uploads CSV| B(Frontend: UploadPanel)
+    B -->|POST /upload| C(Backend: /upload)
+    C -->|Save file, analyze schema| D[services/csv_analyzer.py]
+    D -->|Suggest questions| E[services/llm_service.py]
+    C -->|Register dataset| F[state.py]
+    C -->|Respond: schema, sample, suggestions| B
+    B -->|Show schema, suggestions| G[UI: DataHealthPanel, SuggestedQuestions]
+    G -->|User asks question| H(Frontend: ChatWindow)
+    H -->|POST /query| I(Backend: /query)
+    I -->|LLM: NL→SQL| J[services/llm_service.py]
+    I -->|Raw Mode| K[services/query_engine.py]
+    I -->|Smart Mode| L[services/preprocessing.py]
+    L -->|Impute, outlier detect| K
+    K -->|DuckDB SQL| M[CSV file]
+    K -->|Result| I
+    I -->|Data health| N[services/data_health.py]
+    I -->|LLM: Explain, insights| J
+    I -->|Respond: result, chart, health| H
+    H -->|Show chat, chart, health| O[UI: ChatWindow, ChartRenderer, DataHealthPanel]
+    subgraph Docker Compose
+      C
+      I
+      D
+      J
+      K
+      L
+      N
+      B
+      H
+      G
+      O
+    end
+    P[Docker Compose]
+    P -->|Builds| C
+    P -->|Builds| I
+    P -->|Builds| B
+    P -->|Builds| H
+    P -->|Builds| G
+    P -->|Builds| O
+```
+
+</div>
+
+<!-- Nitya do something -->
+
+</details>
+
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Python 3.11+
 - Node.js 18+
 - A **Groq API key** from [console.groq.com](https://console.groq.com)
@@ -129,11 +223,13 @@ Frontend: Chat + Chart + Health Panel + Preprocessing Log
 ## 🔌 API Reference
 
 ### `POST /upload`
+
 Upload a CSV file. Returns schema, statistics, and LLM-suggested questions.
 
 **Request:** `multipart/form-data` — `file: <csv>`
 
 **Response:**
+
 ```json
 {
   "dataset_id": "uuid",
@@ -148,9 +244,11 @@ Upload a CSV file. Returns schema, statistics, and LLM-suggested questions.
 ```
 
 ### `POST /query`
+
 Ask a natural language question about an uploaded dataset.
 
 **Request:**
+
 ```json
 {
   "dataset_id": "uuid",
@@ -161,6 +259,7 @@ Ask a natural language question about an uploaded dataset.
 ```
 
 **Response:**
+
 ```json
 {
   "sql": "SELECT category, AVG(revenue) FROM data GROUP BY category",
@@ -182,26 +281,26 @@ Ask a natural language question about an uploaded dataset.
 
 ## ✨ Features
 
-| Feature | Status |
-|---|---|
-| CSV drag-and-drop upload | ✅ |
-| Schema extraction (types, null%, mean/min/max) | ✅ |
-| Natural language → SQL (Groq LLM) | ✅ |
-| DuckDB query execution | ✅ |
-| Raw Mode (no preprocessing) | ✅ |
-| Smart Mode (auto imputation + outlier detection) | ✅ |
-| Skewness-aware imputation (mean vs median) | ✅ |
-| IQR outlier detection | ✅ |
-| Preprocessing transparency log | ✅ |
-| Data Health Panel (missing%, outliers, confidence) | ✅ |
-| Plain English explanation | ✅ |
-| Bullet insights | ✅ |
-| "Why did this happen?" analysis | ✅ |
-| Auto bar/line chart (Recharts) | ✅ |
-| Suggested questions (LLM-generated) | ✅ |
-| Session-based context memory (follow-ups) | ✅ |
-| Dark glassmorphism UI | ✅ |
-| Privacy-safe (only schema+5 rows to LLM) | ✅ |
+| Feature                                            | Status |
+| -------------------------------------------------- | ------ |
+| CSV drag-and-drop upload                           | ✅     |
+| Schema extraction (types, null%, mean/min/max)     | ✅     |
+| Natural language → SQL (Groq LLM)                  | ✅     |
+| DuckDB query execution                             | ✅     |
+| Raw Mode (no preprocessing)                        | ✅     |
+| Smart Mode (auto imputation + outlier detection)   | ✅     |
+| Skewness-aware imputation (mean vs median)         | ✅     |
+| IQR outlier detection                              | ✅     |
+| Preprocessing transparency log                     | ✅     |
+| Data Health Panel (missing%, outliers, confidence) | ✅     |
+| Plain English explanation                          | ✅     |
+| Bullet insights                                    | ✅     |
+| "Why did this happen?" analysis                    | ✅     |
+| Auto bar/line chart (Recharts)                     | ✅     |
+| Suggested questions (LLM-generated)                | ✅     |
+| Session-based context memory (follow-ups)          | ✅     |
+| Dark glassmorphism UI                              | ✅     |
+| Privacy-safe (only schema+5 rows to LLM)           | ✅     |
 
 ---
 
@@ -216,12 +315,12 @@ Ask a natural language question about an uploaded dataset.
 
 ## 🛠️ Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Backend | Python 3.11 + FastAPI |
-| Data Engine | DuckDB 0.10 |
-| LLM | Groq (llama3-70b-8192) |
-| Frontend | React 19 + Vite 8 |
-| Charts | Recharts |
-| Icons | Lucide React |
-| Styling | Vanilla CSS (glassmorphism) |
+| Layer       | Technology                  |
+| ----------- | --------------------------- |
+| Backend     | Python 3.11 + FastAPI       |
+| Data Engine | DuckDB 0.10                 |
+| LLM         | Groq (llama3-70b-8192)      |
+| Frontend    | React 19 + Vite 8           |
+| Charts      | Recharts                    |
+| Icons       | Lucide React                |
+| Styling     | Vanilla CSS (glassmorphism) |
