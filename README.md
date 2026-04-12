@@ -1,9 +1,11 @@
-# 🧠 Talk to Data — AI-Powered CSV Query Engine
+# 🧠 DataLens — AI-Powered CSV Query Engine
 
 > Upload a CSV, ask questions in plain English, get SQL-backed answers with charts, data health, and preprocessing transparency.
 
 ---
+🌐 **Live Demo:** https://code-for-purpose-ynou.onrender.com/
 
+---
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -45,6 +47,10 @@ npm run dev
 Frontend runs at → `http://localhost:5173`
 
 ---
+### 3. Docker setup 
+```bash
+docker compose up -build
+```
 
 ## 🏗️ Project Structure
 
@@ -204,7 +210,49 @@ Ask a natural language question about an uploaded dataset.
 | Privacy-safe (only schema+5 rows to LLM) | ✅ |
 
 ---
+---
 
+## 📸 UI Snapshots
+
+### 🏠 Landing Page
+<img width="1848" height="860" alt="Screenshot 2026-04-12 235438" src="https://github.com/user-attachments/assets/4f1a6a0a-5726-4c2c-b7c0-7abcf05fb8c7" />
+
+
+> Upload your CSV and get started with AI-powered querying.
+
+---
+
+### 💬 Chat Interface
+<img width="1919" height="864" alt="Screenshot 2026-04-12 235740" src="https://github.com/user-attachments/assets/ef62e775-d4de-420f-be29-76d8a84299d5" />
+
+
+> Ask questions in plain English and get SQL-backed answers with explanations.
+
+---
+
+### 📊 Visualization Dashboard
+![WhatsApp Image 2026-04-13 at 12 05 31 AM](https://github.com/user-attachments/assets/a4e10b34-a33b-4976-a0c0-b8f7d633f024)
+
+
+> Automatically generated charts and insights from your data.
+
+---
+
+### 🧠 Data Health Panel
+<img width="211" height="169" alt="Screenshot 2026-04-13 000829" src="https://github.com/user-attachments/assets/18e694d1-ae0c-43a7-8816-2e0e256efc20" />
+
+
+> View missing values, outliers, and confidence score.
+
+---
+
+### 🔍 Query + Insights Output
+![WhatsApp Image 2026-04-13 at 12 05 15 AM](https://github.com/user-attachments/assets/d4d0af50-3f7b-4537-b557-00595a8c9804)
+
+
+> Get explanations, insights, and “why” analysis for your queries.
+
+---
 ## 🔒 Privacy & Safety
 
 - **Only schema + 5 sample rows** are sent to the Groq LLM
