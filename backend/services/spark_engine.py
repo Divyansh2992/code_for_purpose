@@ -28,11 +28,19 @@ def get_spark_session():
         ) from exc
 
     _spark_session = (
-        SparkSession.builder.appName("talk-to-data-scalable")
-        .master("local[*]")
-        .config("spark.ui.showConsoleProgress", "false")
+        SparkSession.builder
+        .appName("talk-to-data-scalable")
+        .master("local[1]")   # ⚠️ IMPORTANT: not [*]
+        .config("spark.ui.enabled", "false")
+        .config("spark.driver.bindAddress", "127.0.0.1")
+        .config("spark.driver.host", "127.0.0.1")
+        .config("spark.driver.port", "0")
+        .config("spark.blockManager.port", "0")
+        .config("spark.sql.shuffle.partitions", "4")  # reduce load
+        .config("spark.default.parallelism", "4")
         .getOrCreate()
     )
+    
     _spark_session.sparkContext.setLogLevel("WARN")
     return _spark_session
 
