@@ -8,17 +8,17 @@ import InsightsDashboard from './components/InsightsDashboard';
 import DataHealthPanel from './components/DataHealthPanel';
 import { Database, MessageSquare, BarChart3 } from 'lucide-react';
 import { fetchDataHealth } from './api/client';
+import LandingPage from './components/landing';
 
 export default function App() {
-  const [dataset, setDataset]               = useState(null);   // full upload response
-  const [mode, setMode]                     = useState('raw');
+  const [dataset, setDataset] = useState(null);
+  const [mode, setMode] = useState('raw');
   const [pendingQuestion, setPendingQuestion] = useState('');
-  const [view, setView]                     = useState('chat'); // 'chat' | 'dashboard'
-  const [latestResult, setLatestResult]     = useState(null);
+  const [view, setView] = useState('chat');
+  const [latestResult, setLatestResult] = useState(null);
   const [latestQuestion, setLatestQuestion] = useState('');
-  // Persistent data health — set once on upload, updated on each query result
-  const [dataHealth, setDataHealth]         = useState(null);
-  const [healthLoading, setHealthLoading]   = useState(false);
+  const [dataHealth, setDataHealth] = useState(null);
+  const [healthLoading, setHealthLoading] = useState(false);
 
   const handleUpload = useCallback((data) => {
     setDataset(data);
@@ -66,7 +66,9 @@ export default function App() {
       .finally(() => { if (!cancelled) setHealthLoading(false); });
     return () => { cancelled = true; };
   }, [mode, dataset?.dataset_id]);
-
+  if (!dataset) {
+    return <LandingPage onUpload={handleUpload} />;
+  }
   return (
     <div className="app-shell">
       {/* ── Sidebar ─────────────────────────────────── */}
@@ -85,7 +87,7 @@ export default function App() {
 
         <div className="sidebar-body">
           {/* Upload */}
-          <UploadPanel onUpload={handleUpload} />
+          <UploadPanel onUpload={handleUpload} dataset={dataset} />
 
           <div className="divider" />
 
