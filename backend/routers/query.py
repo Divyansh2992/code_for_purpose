@@ -65,7 +65,10 @@ async def run_query(req: QueryRequest) -> QueryResponse:
 
     try:
         if mode == "smart":
-            log, outlier_count, conn = preprocessing.preprocess(file_path, schema)
+            preprocess_result = preprocessing.preprocess(file_path, schema)
+            log = _preprocess_log_to_lines(preprocess_result.log)
+            outlier_count = preprocess_result.outlier_count
+            conn = preprocess_result.conn
             rows, columns = query_engine.execute_query(file_path, sql, conn=conn)
         elif mode == "scalable":
             raw_df = pd.read_csv(file_path)
@@ -207,6 +210,22 @@ def _serialise_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 new_row[k] = v
         clean.append(new_row)
     return clean
+
+
+def _preprocess_log_to_lines(log_entries: List[Dict[str, Any]]) -> List[str]:
+    """Convert structured preprocessing log entries to UI-friendly lines."""
+    lines: List[str] = []
+    for entry in log_entries or []:
+        if isinstance(entry, dict):
+            message = entry.get("message")
+            if not message:
+                continue
+            level = str(entry.get("level", "")).upper()
+            prefix = f"[{level}] " if level else ""
+            lines.append(f"{prefix}{message}")
+        elif entry is not None:
+            lines.append(str(entry))
+    return lines
 
 
 def _format_query_error(mode: str, error_msg: str) -> str:

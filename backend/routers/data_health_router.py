@@ -36,14 +36,15 @@ async def get_data_health(req: DataHealthRequest):
     elif req.mode in ("smart", "scalable"):
         # Smart/Scalable: run preprocessing to get post-clean stats
         try:
-            log, outlier_count, conn = preprocessing.preprocess(file_path, schema)
-            conn.close()
+            preprocess_result = preprocessing.preprocess(file_path, schema)
+            outlier_count = preprocess_result.outlier_count
+            preprocess_result.conn.close()
 
             # After preprocessing, missing% is reduced to only columns that exceeded threshold
             cleaned_missing = sum(
                 c.get("null_pct", 0.0)
                 for c in schema
-                if c.get("null_pct", 0.0) > preprocessing.NULL_THRESHOLD
+                if c.get("null_pct", 0.0) > preprocessing.DEFAULT_CONFIG.null_threshold_skip
             )
             avg_missing = round(
                 cleaned_missing / len(schema) if schema else 0.0, 2
