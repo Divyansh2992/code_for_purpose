@@ -101,6 +101,7 @@ function AIBubble({ msg }) {
             chartX={msg.chart_x}
             chartY={msg.chart_y}
             result={msg.result}
+            msgId={msg.id}
           />
 
           {/* Result table */}

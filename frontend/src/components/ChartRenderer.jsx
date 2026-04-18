@@ -170,11 +170,14 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-export default function ChartRenderer({ chartType, chartX, chartY, result, height = 220, isDashboard = false }) {
+export default function ChartRenderer({ chartType, chartX, chartY, result, height = 220, isDashboard = false, msgId = null }) {
   // ── Correlation matrix: special renderer, bypass Recharts entirely
   if (chartType === 'correlation_matrix') {
     return (
-      <div className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}>
+      <div
+        className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}
+        id={msgId ? `chart-capture-${msgId}` : undefined}
+      >
         {!isDashboard && <p className="chart-title">🔥 Correlation Matrix</p>}
         <CorrelationHeatmap result={result} />
       </div>
@@ -310,7 +313,10 @@ export default function ChartRenderer({ chartType, chartX, chartY, result, heigh
   };
 
   return (
-    <div className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}>
+    <div
+      className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}
+      id={msgId ? `chart-capture-${msgId}` : undefined}
+    >
       {!isDashboard && (
         <p className="chart-title">
           {chartType === 'area' ? '📈 Confidence Trend' : 

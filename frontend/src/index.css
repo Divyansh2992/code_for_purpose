@@ -1224,3 +1224,95 @@ button {
   box-shadow: 0 10px 30px rgba(124,58,237,0.25);
   transition: all 0.2s ease;
 }
+
+/* ── Export Report Button ────────────────────────────────────────────────────── */
+.export-report-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: linear-gradient(var(--bg-surface), var(--bg-surface)) padding-box,
+              var(--gradient) border-box;
+  color: var(--primary-light);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer;
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.export-report-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--gradient);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.export-report-btn:hover::before {
+  opacity: 0.12;
+}
+
+.export-report-btn:hover {
+  color: #fff;
+  box-shadow: 0 0 18px rgba(124, 58, 237, 0.35);
+  transform: translateY(-1px);
+}
+
+.export-report-btn:active {
+  transform: translateY(0);
+}
+
+.export-report-btn.loading {
+  cursor: not-allowed;
+  opacity: 0.75;
+  color: var(--text-muted);
+}
+
+.export-report-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Shimmer sweep on hover */
+.export-report-btn::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -60%;
+  width: 40%; height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  transition: none;
+}
+
+.export-report-btn:hover::after {
+  animation: shimmer-btn 0.6s ease forwards;
+}
+
+@keyframes shimmer-btn {
+  0%   { left: -60%; }
+  100% { left: 120%; }
+}
+
+/* Spinner for the loading icon inside the button */
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
