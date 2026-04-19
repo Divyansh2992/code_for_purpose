@@ -425,6 +425,10 @@ def _detect_outliers_iqr(
     if q1 is None or q3 is None:
         return None, None, 0
     iqr = q3 - q1
+    # Binary / near-constant columns often have zero IQR and should not
+    # produce outlier flags based on bounds collapsing to a single value.
+    if iqr <= 0:
+        return None, None, 0
     lower = q1 - cfg.iqr_factor * iqr
     upper = q3 + cfg.iqr_factor * iqr
     sc = _safe_col(col)
@@ -460,6 +464,50 @@ def _detect_outliers_zscore(
         return int(count)
     except Exception:
         return 0
+
+
+def _collect_outlier_row_ids_iqr(
+    conn: duckdb.DuckDBPyConnection,
+    col: str,
+    table: str,
+    lower: Optional[float],
+    upper: Optional[float],
+) -> Set[int]:
+    """Collect rowid values flagged as outliers by IQR bounds."""
+    if lower is None or upper is None:
+        return set()
+    sc = _safe_col(col)
+    try:
+        rows = conn.execute(
+            f"SELECT rowid FROM {table} WHERE "
+            f"CAST({sc} AS DOUBLE) < {lower} OR CAST({sc} AS DOUBLE) > {upper}"
+        ).fetchall()
+        return {int(r[0]) for r in rows}
+    except Exception:
+        return set()
+
+
+def _collect_outlier_row_ids_zscore(
+    conn: duckdb.DuckDBPyConnection,
+    col: str,
+    table: str,
+    stats: Dict[str, Optional[float]],
+    z_threshold: float,
+) -> Set[int]:
+    """Collect rowid values flagged as outliers by Z-score."""
+    mean_v = stats.get("mean")
+    std_v = stats.get("stddev")
+    if mean_v is None or not std_v or std_v == 0:
+        return set()
+    sc = _safe_col(col)
+    try:
+        rows = conn.execute(
+            f"SELECT rowid FROM {table} WHERE "
+            f"ABS(CAST({sc} AS DOUBLE) - {mean_v}) / {std_v} > {z_threshold}"
+        ).fetchall()
+        return {int(r[0]) for r in rows}
+    except Exception:
+        return set()
 
 
 def _apply_outlier_action(
@@ -636,6 +684,18 @@ def preprocess(
             col["_orig_name"] = col["name"]
             col["name"] = rename_map.get(col["name"], col["name"])
 
+        # Actually rename columns in the DuckDB table (raw_data)
+        rename_sql = ', '.join([
+            f'{_safe_col(orig)} AS {_safe_col(norm)}' if orig != norm else _safe_col(orig)
+            for orig, norm in rename_map.items()
+        ])
+        try:
+            conn.execute(f'CREATE TABLE raw_data_renamed AS SELECT {rename_sql} FROM raw_data')
+            conn.execute('DROP TABLE raw_data')
+            conn.execute('ALTER TABLE raw_data_renamed RENAME TO raw_data')
+        except Exception as exc:
+            _emit(log, "error", None, f"Failed to rename columns in DuckDB: {exc}", "duckdb_rename_failed")
+
     # ── 4. Duplicate detection ─────────────────────────────────────────────────
     duplicate_rows_removed = 0
     if cfg.remove_duplicates:
@@ -681,7 +741,7 @@ def preprocess(
         col_type  = col["type"].upper()
         null_pct  = float(col.get("null_pct", 0.0))
         orig_name = col.get("_orig_name", col_name)
-        sc        = _safe_col(orig_name)   # always reference the pre-rename table column
+        sc        = _safe_col(col_name)   # reference columns as they exist in deduped/raw_data
 
         # Semantic hint
         if _is_numeric(col_type):
@@ -730,7 +790,7 @@ def preprocess(
         # ── No nulls ───────────────────────────────────────────────────────────
         if null_pct == 0.0:
             # Still check for mixed-type noise on numeric cols
-            mixed_expr = _detect_mixed_type(conn, orig_name, col_type, "deduped")
+            mixed_expr = _detect_mixed_type(conn, col_name, col_type, "deduped")
             if mixed_expr:
                 select_parts.append(f"{mixed_expr} {alias}")
                 columns_modified.append(col_name)
@@ -755,8 +815,8 @@ def preprocess(
         # ── Custom imputer ─────────────────────────────────────────────────────
         if col_name in cfg.custom_imputers:
             try:
-                stats = numeric_stats.get(orig_name, {})
-                custom_expr = cfg.custom_imputers[col_name](conn, orig_name, stats)
+                stats = numeric_stats.get(col_name, {})
+                custom_expr = cfg.custom_imputers[col_name](conn, col_name, stats)
                 if custom_expr:
                     select_parts.append(f"{custom_expr} {alias}")
                     columns_modified.append(col_name)
@@ -770,12 +830,12 @@ def preprocess(
 
         # ── Numeric imputation ─────────────────────────────────────────────────
         if _is_numeric(col_type):
-            stats = numeric_stats.get(orig_name, {})
+            stats = numeric_stats.get(col_name, {})
             # Mixed-type check first
-            mixed_expr = _detect_mixed_type(conn, orig_name, col_type, "deduped")
+            mixed_expr = _detect_mixed_type(conn, col_name, col_type, "deduped")
             base_sc = mixed_expr if mixed_expr else f"CAST({sc} AS DOUBLE)"
             try:
-                expr, method = _impute_numeric(conn, orig_name, stats, cfg,
+                expr, method = _impute_numeric(conn, col_name, stats, cfg,
                                                cfg.group_by_col, log)
                 select_parts.append(f"{expr} {alias}")
                 columns_modified.append(col_name)
@@ -793,7 +853,7 @@ def preprocess(
         # ── Boolean imputation ─────────────────────────────────────────────────
         elif _is_bool(col_type):
             try:
-                expr, method = _impute_boolean(conn, orig_name, "deduped", cfg.bool_fill_strategy)
+                expr, method = _impute_boolean(conn, col_name, "deduped", cfg.bool_fill_strategy)
                 select_parts.append(f"{expr} {alias}")
                 columns_modified.append(col_name)
                 imputation_methods[col_name] = method
@@ -808,7 +868,7 @@ def preprocess(
         # ── Date imputation ────────────────────────────────────────────────────
         elif _is_date(col_type):
             try:
-                expr, method = _impute_date(orig_name, cfg.date_fill_strategy)
+                expr, method = _impute_date(col_name, cfg.date_fill_strategy)
                 select_parts.append(f"{expr} {alias}")
                 columns_modified.append(col_name)
                 imputation_methods[col_name] = method
@@ -823,7 +883,7 @@ def preprocess(
         # ── Categorical imputation ─────────────────────────────────────────────
         else:
             try:
-                expr, method = _impute_categorical(conn, orig_name, "deduped", log)
+                expr, method = _impute_categorical(conn, col_name, "deduped", log)
                 select_parts.append(f"{expr} {alias}")
                 columns_modified.append(col_name)
                 imputation_methods[col_name] = method
@@ -845,16 +905,15 @@ def preprocess(
 
     # ── 8. Outlier detection (deduplicated across columns) ─────────────────────
     outlier_row_ids: Set[int] = set()
-    outlier_count = 0
+    outlier_count_sum = 0
 
     for col in valid_columns:
         col_name  = col["name"]
-        orig_name = col.get("_orig_name", col_name)
         col_type  = col["type"].upper()
         if not _is_numeric(col_type):
             continue
 
-        stats = numeric_stats.get(orig_name, {})
+        stats = numeric_stats.get(col_name, {})
         method = cfg.outlier.method
 
         lower = upper = None
@@ -864,6 +923,10 @@ def preprocess(
             lower, upper, col_outliers_iqr = _detect_outliers_iqr(
                 conn, col_name, stats, cfg.outlier, "data"
             )
+            if col_outliers_iqr > 0:
+                outlier_row_ids.update(
+                    _collect_outlier_row_ids_iqr(conn, col_name, "data", lower, upper)
+                )
             if col_outliers_iqr > 0:
                 _emit(log, "info", col_name,
                       f"{col_outliers_iqr} outlier(s) detected via IQR "
@@ -875,6 +938,12 @@ def preprocess(
         if method in ("zscore", "both"):
             col_outliers_z = _detect_outliers_zscore(conn, col_name, stats, cfg.outlier, "data")
             if col_outliers_z > 0:
+                outlier_row_ids.update(
+                    _collect_outlier_row_ids_zscore(
+                        conn, col_name, "data", stats, cfg.outlier.zscore_threshold
+                    )
+                )
+            if col_outliers_z > 0:
                 _emit(log, "info", col_name,
                       f"{col_outliers_z} outlier(s) detected via Z-score "
                       f"(threshold={cfg.outlier.zscore_threshold}).",
@@ -883,11 +952,13 @@ def preprocess(
                        "pct": round(col_outliers_z / max(row_count, 1) * 100, 2)})
 
         col_outliers_total = max(col_outliers_iqr, col_outliers_z)
-        outlier_count += col_outliers_total  # note: cross-col dedup via unique row IDs not feasible in SQL-only path
+        outlier_count_sum += col_outliers_total
 
         # Apply treatment
         if col_outliers_total > 0 and cfg.outlier.action in ("cap", "remove"):
             _apply_outlier_action(conn, col_name, lower, upper, cfg.outlier.action, "data", log)
+
+    outlier_count = len(outlier_row_ids) if outlier_row_ids else outlier_count_sum
 
     # ── 9. Build structured metadata ───────────────────────────────────────────
     llm_summary = _build_llm_summary(
@@ -908,6 +979,7 @@ def preprocess(
         "outlier_method":          cfg.outlier.method,
         "outlier_action":          cfg.outlier.action,
         "llm_summary":             llm_summary,
+        "rename_map":              rename_map,  # <-- expose mapping for downstream use
     }
 
     _emit(log, "info", None, llm_summary, "preprocessing_complete")

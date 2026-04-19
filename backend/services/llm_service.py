@@ -340,6 +340,149 @@ def generate_sql(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SQL Guardian helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def review_sql(
+    schema: List[Dict[str, Any]],
+    sample: List[Dict[str, Any]],
+    question: str,
+    sql: str,
+) -> Dict[str, Any]:
+    """
+    Ask the LLM to verify whether SQL is semantically aligned with the user
+    question. Returns a JSON-like dict:
+
+      {
+        "verdict": "PASS" | "FAIL",
+        "reason": "...",
+        "fixed_sql": "...optional..."
+      }
+
+    This method is best-effort; on verifier failure it returns PASS so the
+    non-LLM guards can continue.
+    """
+    schema_lines = "\n".join(
+        f"  - {c['name']} ({c['type']})" for c in schema
+    )
+    sample_str = json.dumps(_serialise(sample[:3]), indent=2)
+
+    prompt = (
+        "You are a strict SQL verifier for DuckDB queries.\n\n"
+        f"User question:\n{question}\n\n"
+        f"Candidate SQL:\n{sql}\n\n"
+        f"Table schema:\n{schema_lines}\n\n"
+        f"Sample rows:\n{sample_str}\n\n"
+        "Task:\n"
+        "1. Decide if SQL answers the user's intent.\n"
+        "2. Check if selected/grouped columns and filters are logically correct.\n"
+        "3. If wrong, provide one corrected SQL query for DuckDB.\n\n"
+        "Return ONLY a JSON object in this format:\n"
+        '{"verdict":"PASS|FAIL","reason":"short reason","fixed_sql":"corrected query or empty"}'
+    )
+
+    try:
+        response = _client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You verify SQL correctness with strict reasoning. "
+                        "Return only valid JSON."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            max_tokens=450,
+        )
+
+        raw = response.choices[0].message.content.strip()
+        parsed = _parse_json_object(raw)
+
+        verdict = str(parsed.get("verdict", "PASS")).upper()
+        reason = str(parsed.get("reason", "No issues detected.")).strip()
+        fixed_sql = str(parsed.get("fixed_sql", "")).strip()
+
+        if verdict not in {"PASS", "FAIL"}:
+            verdict = "PASS"
+
+        if fixed_sql:
+            fixed_sql = _clean_sql(fixed_sql)
+            try:
+                validate_sql(fixed_sql)
+            except SQLValidationError:
+                fixed_sql = ""
+
+        return {
+            "verdict": verdict,
+            "reason": reason or "No issues detected.",
+            "fixed_sql": fixed_sql,
+        }
+
+    except Exception:
+        return {
+            "verdict": "PASS",
+            "reason": "Verifier unavailable; continuing with generated SQL.",
+            "fixed_sql": "",
+        }
+
+
+def repair_sql(
+    schema: List[Dict[str, Any]],
+    sample: List[Dict[str, Any]],
+    question: str,
+    failed_sql: str,
+    error_reason: str,
+    history: List[Dict[str, str]] = [],
+) -> str:
+    """
+    Generate a corrected SQL query after a validator/runtime/verifier failure.
+    Returns a cleaned and validated SQL string.
+    """
+    schema_lines = "\n".join(
+        f"  - {c['name']} ({c['type']})" for c in schema
+    )
+    sample_str = json.dumps(_serialise(sample[:5]), indent=2)
+
+    system_prompt = (
+        "You are an expert DuckDB SQL repair assistant.\n"
+        "RULES:\n"
+        "1. Table name is always data.\n"
+        "2. Return only SQL.\n"
+        "3. Use only read-only SELECT/CTE queries.\n"
+        "4. Quote column names using double-quotes.\n"
+        "5. Keep the query concise and correct.\n\n"
+        f"Table schema:\n{schema_lines}\n\n"
+        f"Sample rows:\n{sample_str}"
+    )
+
+    user_prompt = (
+        f"Original question: {question}\n\n"
+        f"Failed SQL:\n{failed_sql}\n\n"
+        f"Failure reason:\n{error_reason}\n\n"
+        "Return a corrected DuckDB SQL query that answers the original question."
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in history[-4:]:
+        messages.append(h)
+    messages.append({"role": "user", "content": user_prompt})
+
+    response = _client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        temperature=0.05,
+        max_tokens=800,
+    )
+
+    sql = _clean_sql(response.choices[0].message.content.strip())
+    validate_sql(sql)
+    return sql
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Explanation & Insights  (unchanged logic, kept for completeness)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -449,6 +592,18 @@ def _clean_sql(raw: str) -> str:
     raw = re.sub(r"```\s*", "", raw)
     lines = [ln for ln in raw.splitlines() if ln.strip()]
     return "\n".join(lines).strip()
+
+
+def _parse_json_object(raw: str) -> Dict[str, Any]:
+    """Parse first JSON object from raw model output."""
+    text = re.sub(r"```json\s*|```", "", raw, flags=re.IGNORECASE).strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not match:
+            raise
+        return json.loads(match.group(0))
 
 
 def _parse_explanation(content: str) -> Dict[str, Any]:

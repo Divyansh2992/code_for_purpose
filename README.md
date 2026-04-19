@@ -1,12 +1,8 @@
-# 🧠 DataLens — AI-Powered CSV Query Engine
+# 🧠 Talk to Data — AI-Powered CSV Query Engine
 
-> Upload a CSV, ask questions in plain English, get SQL-backed answers with charts, data health, and preprocessing transparency.
-
----
+> Upload a CSV, ask questions in plain English, get SQL-backed answers with interactive charts, SQL Guardian protection, and drill-down data health insights.
 
 ---
-
-🌐 **Live Demo:** https://code-for-purpose-ynou.onrender.com/
 
 <details>
 <summary><strong>📦 System & Docker Architecture (click to expand)</strong></summary>
@@ -147,7 +143,7 @@ Frontend runs at → `http://localhost:5173`
 ### 3. Docker setup
 
 ```bash
-docker compose up -build
+docker compose up --build
 ```
 
 ## 🏗️ Project Structure
@@ -183,11 +179,11 @@ natwest hackathon/
         ├── hooks/useChat.js      # Chat state + session memory
         └── components/
             ├── UploadPanel.jsx   # Drag-drop CSV + schema viewer
-            ├── ModeToggle.jsx    # Raw / Smart toggle
+            ├── ModeToggle.jsx    # Raw / Smart / Scalable toggle
             ├── ChatWindow.jsx    # Scrollable messages + input bar
             ├── MessageBubble.jsx # User & AI response cards
-            ├── DataHealthPanel.jsx # Missing%, outliers, confidence
-            ├── ChartRenderer.jsx # Recharts bar/line auto-chart
+            ├── DataHealthPanel.jsx # Missing%, outliers, confidence + drill-down
+            ├── ChartRenderer.jsx # Interactive chart builder + heatmap
             ├── ResultTable.jsx   # Scrollable data table
             └── SuggestedQuestions.jsx # LLM-generated question list
 ```
@@ -204,6 +200,12 @@ LLM (Groq) — NL → SQL
 (Schema + 5 sample rows sent — NEVER full dataset)
     │
     ▼
+SQL Guardian (multi-stage safety)
+  • Static SELECT-only validation
+  • Semantic SQL review
+  • Dry-run/repair loop (up to retry limit)
+  │
+  ▼
 DuckDB — Execute SQL
     │
     ├── Raw Mode  → Direct execution on original data
@@ -215,17 +217,19 @@ DuckDB — Execute SQL
                       • Transparency log generated
     │
     ▼
-Data Health Panel
+Data Health Panel (+ Drill-down)
     • Missing value %
     • Outlier count
     • Rows used
     • Confidence score (0-100)
+  • Confidence reasons + penalty breakdown
+  • Flagged columns + summary
     │
     ▼
 LLM (Groq) — Explanation + Insights + "Why?"
     │
     ▼
-Frontend: Chat + Chart + Health Panel + Preprocessing Log
+Frontend: Chat + Interactive Chart Builder + Health Panel + Guardian Panel + Preprocessing Log
 ```
 
 ---
@@ -264,7 +268,8 @@ Ask a natural language question about an uploaded dataset.
   "dataset_id": "uuid",
   "question": "What is the average revenue by category?",
   "mode": "smart",
-  "session_id": "optional-uuid-for-context-memory"
+  "session_id": "optional-uuid-for-context-memory",
+  "guardian_enabled": true
 }
 ```
 
@@ -280,9 +285,25 @@ Ask a natural language question about an uploaded dataset.
   "chart_type": "bar",
   "chart_x": "category",
   "chart_y": ["avg(revenue)"],
-  "data_health": { "missing_pct": 8.2, "outliers": 3, "rows_used": 4960, "confidence": 89.0 },
+  "data_health": {
+    "missing_pct": 8.2,
+    "outliers": 3,
+    "rows_used": 4960,
+    "confidence": 89.0,
+    "confidence_level": "good",
+    "confidence_reason": ["Missingness penalty is low"],
+    "penalty_breakdown": {"missing_penalty": 5.1, "outlier_penalty": 3.0},
+    "column_health": [{"column": "revenue", "missing_pct": 8.2, "severity": "medium"}],
+    "summary_text": "Overall healthy dataset with moderate missingness in revenue"
+  },
   "preprocessing_log": ["✅ 'revenue': 8.2% nulls filled using median (skewed distribution)"],
   "mode": "smart",
+  "guardian_enabled": true,
+  "guardian_passed": true,
+  "guardian_confidence": 0.93,
+  "guardian_retries": 1,
+  "guardian_log": ["Attempt 1: semantic review FAIL - bad column", "Guardian generated a repaired SQL candidate"],
+  "guardian_steps": [{"attempt": 1, "stages": [{"stage": "validator", "status": "pass", "message": "Static SQL safety check passed."}]}],
   "why_analysis": "The revenue gap likely reflects seasonal demand patterns..."
 }
 ```
@@ -298,15 +319,20 @@ Ask a natural language question about an uploaded dataset.
 | Natural language → SQL (Groq LLM)                  | ✅     |
 | DuckDB query execution                             | ✅     |
 | Raw Mode (no preprocessing)                        | ✅     |
+| Scalable Mode (PySpark pipeline)                   | ✅     |
 | Smart Mode (auto imputation + outlier detection)   | ✅     |
 | Skewness-aware imputation (mean vs median)         | ✅     |
-| IQR outlier detection                              | ✅     |
+| Robust outlier handling (IQR guard + dedup count)  | ✅     |
 | Preprocessing transparency log                     | ✅     |
-| Data Health Panel (missing%, outliers, confidence) | ✅     |
+| Data Health drill-down (reasons/penalties/columns) | ✅     |
 | Plain English explanation                          | ✅     |
 | Bullet insights                                    | ✅     |
 | "Why did this happen?" analysis                    | ✅     |
-| Auto bar/line chart (Recharts)                     | ✅     |
+| SQL Guardian (validator + semantic + dry-run)      | ✅     |
+| Guardian panel UX (attempt/stage expansion)        | ✅     |
+| Interactive chart builder (Type/X/Y/Agg)           | ✅     |
+| Chart types: bar/line/area/pie/scatter             | ✅     |
+| Correlation matrix heatmap rendering               | ✅     |
 | Suggested questions (LLM-generated)                | ✅     |
 | Session-based context memory (follow-ups)          | ✅     |
 | Dark glassmorphism UI                              | ✅     |
@@ -362,7 +388,8 @@ Ask a natural language question about an uploaded dataset.
 
 - **Only schema + 5 sample rows** are sent to the Groq LLM
 - Full dataset stays local, queried by DuckDB
-- All SQL queries are validated to be `SELECT`-only
+- SQL Guardian validates and repairs SQL before execution
+- All executable SQL queries are enforced to be `SELECT`-only
 - No data leaves your machine except the schema summary
 
 ---

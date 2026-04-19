@@ -24,7 +24,7 @@ function isCorrRequest(question) {
  * session_id is stable per browser session so the LLM can use
  * conversation history for follow-up queries.
  */
-export function useChat(datasetId, mode) {
+export function useChat(datasetId, mode, guardianEnabled = true) {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const sessionId = useRef(crypto.randomUUID()).current;
@@ -63,11 +63,17 @@ export function useChat(datasetId, mode) {
             data_health: { missing_pct: 0, outliers: 0, rows_used: 0, confidence: 100 },
             preprocessing_log: ['🐍 Computed via pandas df.corr() — no SQL required.'],
             mode,
+            guardian_enabled: false,
+            guardian_passed: false,
+            guardian_confidence: 0,
+            guardian_retries: 0,
+            guardian_log: [],
+            guardian_steps: [],
             error: null,
           };
         } else {
           // ── Normal query: LLM → DuckDB SQL ───────────────────────────────
-          const data = await sendQuery({ datasetId, question, mode, sessionId });
+          const data = await sendQuery({ datasetId, question, mode, sessionId, guardianEnabled });
           aiMsg = { role: 'ai', id: Date.now() + 1, ...data };
         }
 
@@ -85,13 +91,19 @@ export function useChat(datasetId, mode) {
           data_health: { missing_pct: 0, outliers: 0, rows_used: 0, confidence: 0 },
           preprocessing_log: [],
           mode,
+          guardian_enabled: false,
+          guardian_passed: false,
+          guardian_confidence: 0,
+          guardian_retries: 0,
+          guardian_log: [],
+          guardian_steps: [],
         };
         setMessages((prev) => [...prev, errMsg]);
       } finally {
         setIsLoading(false);
       }
     },
-    [datasetId, mode, sessionId],
+    [datasetId, mode, sessionId, guardianEnabled],
   );
 
   const clear = useCallback(() => setMessages([]), []);

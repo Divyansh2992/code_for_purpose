@@ -168,15 +168,21 @@ const styles = {
   },
   navbar: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    width: "100%",
-    padding: "20px 40px",
+    top: 20,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "90%",
+    maxWidth: 1200,
+    padding: "12px 20px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    backdropFilter: "blur(10px)",
-    zIndex: 20
+    borderRadius: 16,
+    background: "rgba(13,18,36,0.6)",
+    backdropFilter: "blur(16px)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+    zIndex: 10
   },
 
   logo: {
@@ -323,9 +329,12 @@ const styles = {
   },
 
   subtitle: {
-    marginTop: 10,
-    color: "#94a3b8",
+    marginTop: 12,
     fontSize: 16,
+    color: "#94a3b8",
+    maxWidth: 520,
+    marginInline: "auto",
+    lineHeight: 1.6
   },
 
   uploadBox: {

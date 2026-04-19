@@ -18,7 +18,7 @@ export async function uploadCSV(file) {
   return res.json();
 }
 
-export async function sendQuery({ datasetId, question, mode, sessionId }) {
+export async function sendQuery({ datasetId, question, mode, sessionId, guardianEnabled = true }) {
   const res = await fetch(`${BASE}/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -27,6 +27,7 @@ export async function sendQuery({ datasetId, question, mode, sessionId }) {
       question,
       mode,
       session_id: sessionId,
+      guardian_enabled: guardianEnabled,
     }),
   });
 

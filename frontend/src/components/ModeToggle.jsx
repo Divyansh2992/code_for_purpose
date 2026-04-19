@@ -1,4 +1,4 @@
-import { Zap, FlaskConical, Cpu } from 'lucide-react';
+import { Zap, FlaskConical, Cpu, ShieldCheck } from 'lucide-react';
 
 const MODE_DESCRIPTIONS = {
   raw: 'Direct query on original data, no preprocessing',
@@ -6,7 +6,12 @@ const MODE_DESCRIPTIONS = {
   scalable: 'PySpark preprocessing for larger datasets (local Spark)',
 };
 
-export default function ModeToggle({ mode, onChange }) {
+const GUARDIAN_DESCRIPTIONS = {
+  on: 'Guardian ON: SQL is verified and auto-repaired before execution',
+  off: 'Guardian OFF: queries run without pre-execution Guardian checks',
+};
+
+export default function ModeToggle({ mode, onChange, guardianEnabled = true, onGuardianChange }) {
   return (
     <div className="mode-toggle-wrap">
       <p className="section-label">Query Mode</p>
@@ -37,6 +42,26 @@ export default function ModeToggle({ mode, onChange }) {
         </button>
       </div>
       <p className="mode-desc">{MODE_DESCRIPTIONS[mode] || MODE_DESCRIPTIONS.raw}</p>
+
+      <div className="guardian-toggle-wrap">
+        <div className="guardian-toggle-head">
+          <span className="guardian-toggle-label">
+            <ShieldCheck size={12} />
+            SQL Guardian
+          </span>
+          <button
+            id="guardian-toggle"
+            type="button"
+            className={`guardian-toggle-btn${guardianEnabled ? ' active' : ''}`}
+            onClick={() => onGuardianChange?.(!guardianEnabled)}
+          >
+            {guardianEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        <p className="mode-desc">
+          {guardianEnabled ? GUARDIAN_DESCRIPTIONS.on : GUARDIAN_DESCRIPTIONS.off}
+        </p>
+      </div>
     </div>
   );
 }
