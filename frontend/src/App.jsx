@@ -6,6 +6,7 @@ import SuggestedQuestions from './components/SuggestedQuestions';
 import ChatWindow from './components/ChatWindow';
 import InsightsDashboard from './components/InsightsDashboard';
 import DataHealthPanel from './components/DataHealthPanel';
+import ReportExporter from './components/ReportExporter';
 import { Database, MessageSquare, BarChart3 } from 'lucide-react';
 import { fetchDataHealth } from './api/client';
 import LandingPage from './components/landing';
@@ -20,11 +21,13 @@ export default function App() {
   const [latestQuestion, setLatestQuestion] = useState('');
   const [dataHealth, setDataHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
 
   const handleUpload = useCallback((data) => {
     setDataset(data);
     setLatestResult(null);
     setLatestQuestion('');
+    setChatMessages([]);
     // Instantly show raw health from upload schema (no API needed)
     if (data?.columns?.length) {
       const avgMissing = data.columns.reduce((s, c) => s + (c.null_pct || 0), 0) / data.columns.length;
@@ -39,8 +42,6 @@ export default function App() {
       setDataHealth(null);
     }
   }, []);
-
-
 
   const handleSuggestion = useCallback((q) => {
     setPendingQuestion(q);
@@ -57,6 +58,11 @@ export default function App() {
     }
   }, []);
 
+  // Receive lifted messages from ChatWindow for ReportExporter
+  const handleMessages = useCallback((msgs) => {
+    setChatMessages(msgs);
+  }, []);
+
   // Fetch health metrics whenever mode changes (or dataset is first loaded)
   useEffect(() => {
     if (!dataset?.dataset_id) return;
@@ -68,9 +74,11 @@ export default function App() {
       .finally(() => { if (!cancelled) setHealthLoading(false); });
     return () => { cancelled = true; };
   }, [mode, dataset?.dataset_id]);
+
   if (!dataset) {
     return <LandingPage onUpload={handleUpload} />;
   }
+
   return (
     <div className="app-shell">
       {/* ── Sidebar ─────────────────────────────────── */}
@@ -132,8 +140,14 @@ export default function App() {
 
       {/* ── Main Area ───────────────────────────────── */}
       <main className="chat-area">
-        {/* Sub-header with View Toggle */}
-        <div style={{ padding: '12px 24px', position: 'absolute', top: 0, right: 0, zIndex: 100, display: dataset ? 'flex' : 'none' }}>
+        {/* Sub-header with View Toggle + Export Report button */}
+        <div style={{ padding: '12px 24px', position: 'absolute', top: 0, right: 0, zIndex: 100, display: dataset ? 'flex' : 'none', alignItems: 'center', gap: 10 }}>
+          <ReportExporter
+            messages={chatMessages}
+            dataset={dataset}
+            mode={mode}
+            dataHealth={dataHealth}
+          />
           <div className="view-toggle">
             <button
               className={`view-toggle-btn ${view === 'chat' ? 'active' : ''}`}
@@ -161,6 +175,7 @@ export default function App() {
             pendingQuestion={pendingQuestion}
             onPendingConsumed={() => setPendingQuestion('')}
             onResult={handleQueryResult}
+            onMessages={handleMessages}
           />
         </div>
         {view === 'dashboard' && (

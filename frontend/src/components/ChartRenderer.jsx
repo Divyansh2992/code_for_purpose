@@ -137,8 +137,8 @@ function CorrelationHeatmap({ result }) {
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 2 }}>
             {Math.abs(tooltip.val ?? 0) >= 0.7 ? '🔴 Strong correlation' :
-             Math.abs(tooltip.val ?? 0) >= 0.4 ? '🟡 Moderate correlation' :
-             '🟢 Weak/no correlation'}
+              Math.abs(tooltip.val ?? 0) >= 0.4 ? '🟡 Moderate correlation' :
+                '🟢 Weak/no correlation'}
           </div>
         </div>
       )}
@@ -228,11 +228,14 @@ function aggregateData(rows, xKey, yKey, aggregation, limit = 50) {
   return out.slice(0, limit);
 }
 
-export default function ChartRenderer({ chartType, chartX, chartY, result, height = 220, isDashboard = false }) {
+export default function ChartRenderer({ chartType, chartX, chartY, result, height = 220, isDashboard = false, msgId = null }) {
   // ── Correlation matrix: special renderer, bypass Recharts entirely
   if (chartType === 'correlation_matrix') {
     return (
-      <div className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}>
+      <div
+        className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}
+        id={msgId ? `chart-capture-${msgId}` : undefined}
+      >
         {!isDashboard && <p className="chart-title">🔥 Correlation Matrix</p>}
         <CorrelationHeatmap result={result} />
       </div>
@@ -324,28 +327,28 @@ export default function ChartRenderer({ chartType, chartX, chartY, result, heigh
     <>
       <defs>
         <linearGradient id="colorPrimary" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3}/>
-          <stop offset="95%" stopColor="#7c3aed" stopOpacity={0}/>
+          <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
+          <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
         </linearGradient>
         <linearGradient id="colorSecondary" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3}/>
-          <stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/>
+          <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
+          <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
         </linearGradient>
       </defs>
       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-      <XAxis 
-        dataKey="name" 
-        tick={axisStyle} 
-        axisLine={false} 
-        tickLine={false} 
+      <XAxis
+        dataKey="name"
+        tick={axisStyle}
+        axisLine={false}
+        tickLine={false}
         minTickGap={20}
       />
-      <YAxis 
-        tick={axisStyle} 
-        axisLine={false} 
-        tickLine={false} 
+      <YAxis
+        tick={axisStyle}
+        axisLine={false}
+        tickLine={false}
         width={45}
-        tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : v} 
+        tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}
       />
       <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1 }} />
     </>
@@ -445,56 +448,11 @@ export default function ChartRenderer({ chartType, chartX, chartY, result, heigh
   return (
     <div className={`chart-container-full ${isDashboard ? 'dashboard-view' : ''}`}>
       {!isDashboard && (
-        <div className="chart-builder-controls">
-          <label className="chart-builder-field">
-            <span>Type</span>
-            <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
-              <option value="bar">Bar</option>
-              <option value="line">Line</option>
-              <option value="area">Area</option>
-              <option value="pie">Pie</option>
-              <option value="scatter">Scatter</option>
-            </select>
-          </label>
-
-          <label className="chart-builder-field">
-            <span>X</span>
-            <select value={selectedX} onChange={(e) => setSelectedX(e.target.value)}>
-              {columns.map((col) => (
-                <option key={col} value={col}>{col}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="chart-builder-field">
-            <span>Y</span>
-            <select value={selectedY} onChange={(e) => setSelectedY(e.target.value)}>
-              {(numericColumns.length ? numericColumns : columns).map((col) => (
-                <option key={col} value={col}>{col}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="chart-builder-field">
-            <span>Agg</span>
-            <select value={aggregation} onChange={(e) => setAggregation(e.target.value)}>
-              <option value="none">None</option>
-              <option value="sum">Sum</option>
-              <option value="avg">Avg</option>
-              <option value="min">Min</option>
-              <option value="max">Max</option>
-              <option value="count">Count</option>
-            </select>
-          </label>
-        </div>
-      )}
-
-      {!isDashboard && (
         <p className="chart-title">
-          {selectedType === 'area' ? '📈 Confidence Trend' : 
-           selectedType === 'pie' ? '🥧 Composition' : 
-           selectedType === 'scatter' ? '🟣 Relationship' :
-           selectedType === 'bar' ? '📊 Comparison' : '📉 Trend'} — {selectedX}
+          {selectedType === 'area' ? '📈 Confidence Trend' :
+            selectedType === 'pie' ? '🥧 Composition' :
+              selectedType === 'scatter' ? '🟣 Relationship' :
+                selectedType === 'bar' ? '📊 Comparison' : '📉 Trend'} — {selectedX}
         </p>
       )}
       <ResponsiveContainer width="100%" height={height}>

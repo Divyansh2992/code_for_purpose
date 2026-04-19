@@ -3,11 +3,16 @@ import { Send } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import { useChat } from '../hooks/useChat';
 
-export default function ChatWindow({ datasetId, mode, guardianEnabled, onSuggestionSelect, pendingQuestion, onPendingConsumed, onResult }) {
-  const { messages, isLoading, ask } = useChat(datasetId, mode, guardianEnabled);
+export default function ChatWindow({ datasetId, mode, onSuggestionSelect, pendingQuestion, onPendingConsumed, onResult }) {
+  const { messages, isLoading, ask } = useChat(datasetId, mode);
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // Bubble messages up so parent can pass them to ReportExporter
+  useEffect(() => {
+    onMessages?.(messages);
+  }, [messages, onMessages]);
 
   // Notify parent of latest result for the dashboard
   useEffect(() => {
