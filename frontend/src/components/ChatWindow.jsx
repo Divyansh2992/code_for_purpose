@@ -3,7 +3,7 @@ import { Send } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import { useChat } from '../hooks/useChat';
 
-export default function ChatWindow({ datasetId, mode, onSuggestionSelect, pendingQuestion, onPendingConsumed, onResult }) {
+export default function ChatWindow({ datasetId, mode, onSuggestionSelect, pendingQuestion, onPendingConsumed, onResult, onMessages }) {
   const { messages, isLoading, ask } = useChat(datasetId, mode);
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
