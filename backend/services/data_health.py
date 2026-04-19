@@ -334,6 +334,50 @@ def _build_summary_text(
     )
 
 
+def _estimate_outlier_rows_from_dataframe(df_sample: pd.DataFrame, row_count: int) -> int:
+    """Estimate unique outlier rows using IQR across numeric columns."""
+    if df_sample is None or df_sample.empty:
+        return 0
+
+    numeric_df = df_sample.select_dtypes(include="number")
+    if numeric_df.empty:
+        return 0
+
+    outlier_mask = pd.Series(False, index=df_sample.index)
+
+    for col_name in numeric_df.columns:
+        try:
+            col_vals = pd.to_numeric(numeric_df[col_name], errors="coerce")
+            valid = col_vals.dropna()
+            if len(valid) < 4:
+                continue
+
+            q1 = float(valid.quantile(0.25))
+            q3 = float(valid.quantile(0.75))
+            iqr = q3 - q1
+            if iqr <= 0:
+                continue
+
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            col_mask = (col_vals < lower) | (col_vals > upper)
+            outlier_mask = outlier_mask | col_mask.fillna(False)
+        except Exception:
+            continue
+
+    detected = int(outlier_mask.sum())
+    sample_rows = int(len(df_sample))
+
+    if sample_rows <= 0:
+        return 0
+
+    if row_count > sample_rows:
+        scaled = int(round((detected / sample_rows) * row_count))
+        return max(0, min(scaled, row_count))
+
+    return max(0, min(detected, row_count))
+
+
 def _zero_health() -> Dict[str, Any]:
     """Return a zero-confidence health report for empty / invalid inputs."""
     return {
@@ -422,8 +466,9 @@ def compute_health(
 
 def compute_health_from_dataframe(
     df: Optional[pd.DataFrame],
-    outlier_count: int = 0,
+    outlier_count: Optional[int] = None,
     *,
+    total_row_count: Optional[int] = None,
     weights: PenaltyWeights = DEFAULT_WEIGHTS,
     custom_metrics: Optional[List[CustomMetricFn]] = None,
     verbose: bool = False,
@@ -444,13 +489,14 @@ def compute_health_from_dataframe(
         return _zero_health()
 
     try:
-        row_count = int(len(df))
+        observed_rows = int(len(df))
+        row_count = int(total_row_count) if total_row_count and total_row_count > 0 else observed_rows
         col_count = int(df.shape[1]) if df.ndim > 1 else 1
     except Exception as exc:
         log.exception("Cannot determine DataFrame shape: %s", exc)
         return _zero_health()
 
-    if row_count == 0 or col_count == 0:
+    if observed_rows == 0 or col_count == 0:
         log.debug("Empty DataFrame (shape=%s); returning zero health.", df.shape)
         return _zero_health()
 
@@ -470,6 +516,12 @@ def compute_health_from_dataframe(
 
     avg_missing = float(null_pcts.mean()) if len(null_pcts) > 0 else 0.0
 
+    inferred_outlier_count = (
+        _estimate_outlier_rows_from_dataframe(df_sample, row_count)
+        if outlier_count is None
+        else max(int(outlier_count), 0)
+    )
+
     col_healths: List[_ColumnHealth] = []
     for col_name in df_sample.columns:
         try:
@@ -482,16 +534,16 @@ def compute_health_from_dataframe(
         col_healths.append(ch)
 
     bd = _build_penalties(
-        avg_missing, outlier_count, row_count, col_healths,
+        avg_missing, inferred_outlier_count, row_count, col_healths,
         weights, plugins, df_sample,
     )
     confidence = round(max(100.0 - bd.total(), 0.0), 1)
     level = _confidence_level(confidence)
     reasons = _build_reasons(
-        bd, col_healths, row_count, outlier_count, avg_missing, plugins, df_sample
+        bd, col_healths, row_count, inferred_outlier_count, avg_missing, plugins, df_sample
     )
     summary = _build_summary_text(
-        confidence, level, row_count, col_count, avg_missing, outlier_count, reasons
+        confidence, level, row_count, col_count, avg_missing, inferred_outlier_count, reasons
     )
 
     if verbose:
@@ -503,7 +555,7 @@ def compute_health_from_dataframe(
 
     return {
         "missing_pct": round(avg_missing, 2),
-        "outliers": outlier_count,
+        "outliers": inferred_outlier_count,
         "rows_used": row_count,
         "confidence": confidence,
         "confidence_level": level,

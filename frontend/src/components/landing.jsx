@@ -1,0 +1,450 @@
+import { useRef, useState } from "react";
+import { Upload } from "lucide-react";
+import { uploadCSV } from "../api/client";
+
+export default function LandingPage({ onUpload }) {
+  const inputRef = useRef();
+  const [dragOver, setDragOver] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const handleFile = async (file) => {
+    if (!file || !file.name.toLowerCase().endsWith(".csv")) return;
+
+    setLoading(true);
+    try {
+      const data = await uploadCSV(file); // ✅ API call
+      onUpload(data);                     // ✅ send to App.jsx
+    } catch (e) {
+      console.error("Upload failed:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+  {
+    showAbout && (
+      <div style={styles.modalOverlay} onClick={() => setShowAbout(false)}>
+        <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+          <h2 style={{ marginBottom: 10 }}>About DataLens</h2>
+
+          <p style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6 }}>
+            DataLens is an AI-powered CSV analysis tool that lets you query datasets
+            using natural language.
+            <br /><br />
+            Upload your data, ask questions, and instantly visualize insights —
+            without writing a single SQL query.
+          </p>
+
+          <button
+            style={styles.closeBtn}
+            onClick={() => setShowAbout(false)}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    )
+  }
+  return (
+
+    <div style={styles.page}>
+      <div style={styles.grid}></div>
+      <div style={styles.navbar}>
+        <div style={styles.logo}>
+          <div style={styles.logoIcon}>📊</div>
+          <span style={styles.logoText}>DataLens</span>
+        </div>
+      </div>
+      {/* Glow background */}
+      <div style={styles.bgGlow1} />
+      <div style={styles.bgGlow2} />
+
+      {/* Content */}
+      <div style={styles.container}>
+        <div style={styles.hero}>
+
+          <h1 style={styles.title}>
+            Turn your CSV into <br />
+            <span style={styles.gradientText}>live insights</span>
+          </h1>
+
+          <p style={styles.typing}>
+            Ask questions. Get answers. Instantly.
+          </p>
+
+          <p style={styles.subtitle}>
+            No SQL. No dashboards. Just upload and explore your data with AI.
+          </p>
+
+          <div style={styles.chips}>
+            {[
+              "⚡ Ask in plain English",
+              "📊 Auto visualizations",
+              "🧠 AI-powered insights"
+            ].map((text, i) => (
+              <div key={i} style={{
+                ...styles.chip,
+                animationDelay: `${i * 0.2}s`
+              }}>
+                {text}
+              </div>
+            ))}
+          </div>
+
+        </div>
+
+        {/* Upload Box */}
+        <div
+          style={{
+            ...styles.uploadBox,
+            ...(dragOver ? styles.uploadHover : {}),
+          }}
+          onClick={() => inputRef.current.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            handleFile(e.dataTransfer.files[0]);
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".csv"
+            style={{ display: "none" }}
+            onChange={(e) => handleFile(e.target.files[0])}
+          />
+
+          <div style={styles.iconWrap}>
+            <Upload size={32} />
+          </div>
+
+          <div style={styles.uploadText}>
+            {loading ? "Uploading..." : "Drop CSV here or click to upload"}
+          </div>
+
+          <div style={styles.uploadSub}>
+            Only .csv files supported
+          </div>
+        </div>
+
+        {/* CTA */}
+        <button
+          style={styles.cta}
+          onClick={() => inputRef.current.click()}
+        >
+          {loading ? "Processing..." : "Get Started →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ================= STYLES ================= */
+
+const styles = {
+  grid: {
+    position: "absolute",
+    inset: 0,
+    backgroundImage:
+      "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)",
+    backgroundSize: "40px 40px",
+    zIndex: 0
+  },
+  page: {
+    height: "100vh",
+    width: "100%",
+    background: "#050814",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    overflow: "hidden",
+    fontFamily: "Inter, sans-serif",
+    color: "#fff",
+  },
+  navbar: {
+    position: "absolute",
+    top: 20,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "90%",
+    maxWidth: 1200,
+    padding: "12px 20px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderRadius: 16,
+    background: "rgba(13,18,36,0.6)",
+    backdropFilter: "blur(16px)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+    zIndex: 10
+  },
+
+  logo: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    fontWeight: 600
+  },
+
+  logoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    background: "linear-gradient(135deg, #7c3aed, #06b6d4)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 18
+  },
+
+  logoText: {
+    fontSize: 16,
+    background: "linear-gradient(135deg, #7c3aed, #06b6d4)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent"
+  },
+
+  navActions: {
+    display: "flex",
+    gap: 16
+  },
+
+  navBtn: {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#94a3b8",
+    padding: "6px 12px",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 12,
+    transition: "0.2s"
+  },
+
+  navbar: {
+    position: "absolute",
+    top: 20,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "90%",
+    maxWidth: 1200,
+    padding: "12px 20px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderRadius: 16,
+
+    background: "rgba(13,18,36,0.6)",
+    backdropFilter: "blur(16px)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+
+    zIndex: 10
+  },
+
+  logo: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    fontWeight: 600
+  },
+
+  logoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    background: "linear-gradient(135deg, #7c3aed, #06b6d4)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 18
+  },
+
+  logoText: {
+    fontSize: 16,
+    background: "linear-gradient(135deg, #7c3aed, #06b6d4)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent"
+  },
+
+  navActions: {
+    display: "flex",
+    gap: 16
+  },
+
+  navBtn: {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#94a3b8",
+    padding: "6px 12px",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontSize: 12,
+    transition: "0.2s"
+  },
+  bgGlow1: {
+    position: "absolute",
+    width: 400,
+    height: 400,
+    background: "radial-gradient(circle, rgba(124,58,237,0.4), transparent)",
+    top: "20%",
+    left: "10%",
+    filter: "blur(100px)",
+    zIndex: 0,
+    pointerEvents: "none"
+  },
+
+  bgGlow2: {
+    position: "absolute",
+    width: 400,
+    height: 400,
+    background: "radial-gradient(circle, rgba(6,182,212,0.4), transparent)",
+    bottom: "20%",
+    right: "10%",
+    filter: "blur(100px)",
+    zIndex: 0,
+    pointerEvents: "none"
+  },
+
+  container: {
+    textAlign: "center",
+    zIndex: 2,
+    maxWidth: 600,
+    padding: 20,
+    position: "relative",
+    zIndex: 5
+  },
+
+  title: {
+    fontSize: 48,
+    fontWeight: 800,
+    background: "linear-gradient(135deg, #7c3aed, #06b6d4)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+  },
+
+  subtitle: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#94a3b8",
+    maxWidth: 520,
+    marginInline: "auto",
+    lineHeight: 1.6
+  },
+
+  uploadBox: {
+    marginTop: 30,
+    padding: 30,
+    borderRadius: 20,
+    border: "2px dashed rgba(255,255,255,0.2)",
+    background: "rgba(255,255,255,0.03)",
+    backdropFilter: "blur(20px)",
+    cursor: "pointer",
+    transition: "0.3s",
+  },
+
+  uploadHover: {
+    border: "2px dashed #7c3aed",
+    boxShadow: "0 0 30px rgba(124,58,237,0.3)",
+    transform: "scale(1.02)",
+  },
+
+  iconWrap: {
+    marginBottom: 10,
+    opacity: 0.8,
+  },
+
+  uploadText: {
+    fontSize: 16,
+    fontWeight: 500,
+  },
+
+  uploadSub: {
+    fontSize: 12,
+    color: "#94a3b8",
+    marginTop: 4,
+  },
+
+  cta: {
+    marginTop: 25,
+    padding: "12px 20px",
+    borderRadius: 12,
+    border: "none",
+    background: "linear-gradient(135deg, #7c3aed, #06b6d4)",
+    color: "#fff",
+    fontWeight: 600,
+    cursor: "pointer",
+    boxShadow: "0 0 20px rgba(124,58,237,0.4)",
+  },
+  modalOverlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.6)",
+    backdropFilter: "blur(6px)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 100
+  },
+
+  modal: {
+    width: 400,
+    padding: 24,
+    borderRadius: 16,
+    background: "rgba(13,18,36,0.9)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    boxShadow: "0 10px 40px rgba(0,0,0,0.6)"
+  },
+
+  closeBtn: {
+    marginTop: 20,
+    padding: "8px 14px",
+    borderRadius: 10,
+    border: "none",
+    background: "linear-gradient(135deg,#7c3aed,#06b6d4)",
+    color: "#fff",
+    cursor: "pointer"
+  },
+  tagline: {
+    marginTop: 18,
+    fontSize: 20,
+    fontWeight: 600,
+    color: "#e2e8f0",
+    letterSpacing: "0.4px"
+  },
+
+  subtitle: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#94a3b8",
+    maxWidth: 520,
+    marginInline: "auto",
+    lineHeight: 1.6
+  },
+  chips: {
+    marginTop: 24,
+    display: "flex",
+    justifyContent: "center",
+    gap: 12,
+    flexWrap: "wrap"
+  },
+
+  chip: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 13,
+    padding: "8px 14px",
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: "#e2e8f0",
+    backdropFilter: "blur(6px)",
+    transition: "0.2s"
+  },
+};

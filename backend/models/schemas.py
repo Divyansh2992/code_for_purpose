@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
 
@@ -26,6 +26,7 @@ class QueryRequest(BaseModel):
     question: str
     mode: str = "raw"          # "raw" | "smart" | "scalable"
     session_id: Optional[str] = None
+    guardian_enabled: bool = True
 
 
 class DataHealth(BaseModel):
@@ -33,6 +34,11 @@ class DataHealth(BaseModel):
     outliers: int
     rows_used: int
     confidence: float
+    confidence_level: Optional[str] = None
+    confidence_reason: List[str] = Field(default_factory=list)
+    column_health: List[Dict[str, Any]] = Field(default_factory=list)
+    penalty_breakdown: Dict[str, float] = Field(default_factory=dict)
+    summary_text: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -47,5 +53,11 @@ class QueryResponse(BaseModel):
     data_health: DataHealth
     preprocessing_log: List[str] = []
     mode: str
+    guardian_enabled: bool = True
+    guardian_passed: bool = False
+    guardian_confidence: float = 0.0
+    guardian_retries: int = 0
+    guardian_log: List[str] = []
+    guardian_steps: List[Dict[str, Any]] = Field(default_factory=list)
     why_analysis: Optional[str] = None
     error: Optional[str] = None

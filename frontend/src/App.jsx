@@ -10,8 +10,9 @@ import { Database, MessageSquare, BarChart3 } from 'lucide-react';
 import { fetchDataHealth } from './api/client';
 
 export default function App() {
-  const [dataset, setDataset]               = useState(null);   // full upload response
-  const [mode, setMode]                     = useState('raw');
+  const [dataset, setDataset] = useState(null);
+  const [mode, setMode] = useState('raw');
+  const [guardianEnabled, setGuardianEnabled] = useState(true);
   const [pendingQuestion, setPendingQuestion] = useState('');
   const [view, setView]                     = useState('chat'); // 'chat' | 'dashboard'
   const [latestResult, setLatestResult]     = useState(null);
@@ -90,7 +91,12 @@ export default function App() {
           <div className="divider" />
 
           {/* Mode toggle */}
-          <ModeToggle mode={mode} onChange={setMode} />
+          <ModeToggle
+            mode={mode}
+            onChange={setMode}
+            guardianEnabled={guardianEnabled}
+            onGuardianChange={setGuardianEnabled}
+          />
 
           <div className="divider" />
 
@@ -148,6 +154,7 @@ export default function App() {
           <ChatWindow
             datasetId={dataset?.dataset_id || null}
             mode={mode}
+            guardianEnabled={guardianEnabled}
             pendingQuestion={pendingQuestion}
             onPendingConsumed={() => setPendingQuestion('')}
             onResult={handleQueryResult}
