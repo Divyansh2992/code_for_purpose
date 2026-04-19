@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: talk-to-data-backend
+    env: docker
+    plan: free
+    dockerfilePath: backend/Dockerfile
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+    autoDeploy: true
+    buildCommand: ''
+    startCommand: ''
+    healthCheckPath: /health
+    envVars:
+      - key: FRONTEND_URL
+        value: https://talk-to-data-frontend.onrender.com
+  - type: web
+    name: talk-to-data-frontend
+    env: docker
+    plan: free
+    dockerfilePath: frontend/Dockerfile
+    autoDeploy: true
+    buildCommand: ''
+    startCommand: ''
+    envVars:
+      - key: VITE_PROXY_TARGET
+        value: http://talk-to-data-backend:8000
