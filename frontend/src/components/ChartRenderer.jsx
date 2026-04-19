@@ -36,109 +36,220 @@ function CorrelationHeatmap({ result }) {
 
   if (!result?.length) return null;
 
-  // Build unique sorted label lists
   const cols = [...new Set(result.map(r => r.col_a))].sort();
   const n = cols.length;
 
-  // Build lookup map { "col_a::col_b" -> correlation }
   const lookup = {};
-  result.forEach(r => { lookup[`${r.col_a}::${r.col_b}`] = r.correlation; });
+  result.forEach(r => {
+    lookup[`${r.col_a}::${r.col_b}`] = r.correlation;
+  });
 
-  const cellSize = Math.max(44, Math.min(80, Math.floor(480 / n)));
-  const labelW = 110;
-  const totalW = labelW + n * cellSize;
-  const totalH = 24 + n * cellSize;
+  const cellSize = Math.max(40, Math.min(70, Math.floor(600 / n)));
+  const labelW = 130;
 
   return (
-    <div style={{ overflowX: 'auto', overflowY: 'auto', position: 'relative' }}>
-      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, letterSpacing: '0.05em' }}>
-        🔥 CORRELATION MATRIX — {n} numeric columns
+    <div
+      style={{
+        overflow: 'auto',
+        maxHeight: 500,
+        borderRadius: 12,
+        border: '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(13,18,36,0.6)',
+        backdropFilter: 'blur(12px)',
+        padding: 12,
+      }}
+    >
+      {/* Title */}
+      <p style={{
+        fontSize: 12,
+        color: 'var(--text-muted)',
+        marginBottom: 10,
+        letterSpacing: '0.08em',
+        fontWeight: 600
+      }}>
+        🔥 CORRELATION MATRIX — {n} columns
       </p>
-      <div style={{ position: 'relative', display: 'inline-block', minWidth: totalW }}>
-        {/* Column header labels */}
-        <div style={{ display: 'flex', marginLeft: labelW, marginBottom: 2 }}>
+
+      <div style={{ position: 'relative', width: 'fit-content' }}>
+
+        {/* Column Headers */}
+        <div style={{
+          display: 'flex',
+          marginLeft: labelW,
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
+          background: 'rgba(13,18,36,0.9)',
+          backdropFilter: 'blur(10px)',
+          paddingBottom: 6
+        }}>
           {cols.map(col => (
             <div key={col} style={{
-              width: cellSize, fontSize: 9, color: 'var(--text-muted)', fontWeight: 600,
-              textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap', padding: '0 2px',
-              transform: 'rotate(-30deg)', transformOrigin: 'bottom left',
-              height: 40, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+              width: cellSize,
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              fontWeight: 600,
+              textAlign: 'center',
+              transform: 'rotate(-30deg)',
+              transformOrigin: 'bottom left',
+              height: 40,
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'center',
+              opacity: 0.8
             }}>
               {col.length > 10 ? col.slice(0, 9) + '…' : col}
             </div>
           ))}
         </div>
+
         {/* Rows */}
         {cols.map(rowCol => (
-          <div key={rowCol} style={{ display: 'flex', alignItems: 'center' }}>
-            {/* Row label */}
+          <div key={rowCol} style={{ display: 'flex' }}>
+
+            {/* Row Label */}
             <div style={{
-              width: labelW, fontSize: 10, color: 'var(--text-muted)', fontWeight: 600,
-              textAlign: 'right', paddingRight: 8, flex: '0 0 auto',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              width: labelW,
+              fontSize: 11,
+              color: 'var(--text-muted)',
+              fontWeight: 600,
+              textAlign: 'right',
+              paddingRight: 10,
+              position: 'sticky',
+              left: 0,
+              background: 'rgba(13,18,36,0.9)',
+              zIndex: 4,
+              display: 'flex',
+              alignItems: 'center'
             }}>
               {rowCol.length > 14 ? rowCol.slice(0, 13) + '…' : rowCol}
             </div>
+
             {/* Cells */}
             {cols.map(colCol => {
               const val = lookup[`${rowCol}::${colCol}`];
-              const displayVal = (val === null || val === undefined || isNaN(val))
-                ? 'N/A' : Number(val).toFixed(2);
-              const bg = correlationColor(val);
               const isDiag = rowCol === colCol;
+
+              const displayVal =
+                val == null || isNaN(val) ? '' : Number(val).toFixed(2);
+
+              const bg = correlationColor(val);
+
               return (
                 <div
                   key={colCol}
-                  onMouseEnter={e => setTooltip({ x: e.clientX, y: e.clientY, rowCol, colCol, val })}
+                  onMouseEnter={(e) =>
+                    setTooltip({
+                      x: e.clientX + 12,
+                      y: e.clientY + 12,
+                      rowCol,
+                      colCol,
+                      val
+                    })
+                  }
                   onMouseLeave={() => setTooltip(null)}
                   style={{
-                    width: cellSize, height: cellSize, background: bg,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: cellSize,
+                    height: cellSize,
+                    background: bg,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
 
-                    fontSize: n <= 6 ? 11 : 9, color: isDiag ? '#fff' : (Math.abs(val ?? 0) > 0.5 ? '#fff' : 'var(--text-muted)'),
-                    fontWeight: isDiag ? 700 : 500, cursor: 'default',
-                    border: isDiag ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.03)',
-                    transition: 'filter 0.15s', borderRadius: 2,
-                    userSelect: 'none',
+                    fontSize: n <= 6 ? 12 : 10,
+                    fontWeight: isDiag ? 700 : 500,
+                    color:
+                      Math.abs(val ?? 0) > 0.5
+                        ? '#fff'
+                        : 'var(--text-muted)',
+
+                    border: '1px solid rgba(255,255,255,0.04)',
+                    borderRadius: 6,
+
+                    transition: 'all 0.2s ease',
+                    cursor: 'default'
                   }}
+                  onMouseMove={(e) =>
+                    setTooltip((prev) =>
+                      prev
+                        ? { ...prev, x: e.clientX + 12, y: e.clientY + 12 }
+                        : null
+                    )
+                  }
                 >
-                  {n <= 8 ? displayVal : (isDiag ? '1.0' : '')}
+                  {n <= 8 ? displayVal : isDiag ? '1.0' : ''}
                 </div>
               );
             })}
           </div>
         ))}
+
         {/* Legend */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, marginLeft: labelW }}>
-          <span style={{ fontSize: 10, color: '#ef4444' }}>-1.0</span>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginTop: 14,
+          marginLeft: labelW
+        }}>
+          <span style={{ fontSize: 11, color: '#ef4444' }}>-1</span>
+
           <div style={{
-            flex: 1, height: 8, borderRadius: 4,
-            background: 'linear-gradient(to right, rgb(239,68,68), rgb(17,24,39), rgb(124,58,237))',
-            maxWidth: Math.min(n * cellSize, 240),
+            height: 8,
+            width: 200,
+            borderRadius: 6,
+            background:
+              'linear-gradient(to right, rgb(239,68,68), rgb(17,24,39), rgb(124,58,237))'
           }} />
-          <span style={{ fontSize: 10, color: '#7c3aed' }}>+1.0</span>
+
+          <span style={{ fontSize: 11, color: '#7c3aed' }}>+1</span>
         </div>
       </div>
-      {/* Floating tooltip */}
+
+      {/* Tooltip */}
       {tooltip && (
         <div style={{
-          position: 'fixed', left: tooltip.x + 12, top: tooltip.y + 12,
-          background: 'rgba(13,18,36,0.97)', border: '1px solid rgba(255,255,255,0.12)',
-          borderRadius: 8, padding: '8px 12px', fontSize: 12, zIndex: 9999,
-          boxShadow: '0 8px 30px rgba(0,0,0,0.6)', pointerEvents: 'none',
+          position: 'fixed',
+          left: tooltip.x,
+          top: tooltip.y,
+          background: 'rgba(13,18,36,0.95)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 10,
+          padding: '10px 14px',
+          fontSize: 12,
+          zIndex: 9999,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(12px)',
+          pointerEvents: 'none',
+          minWidth: 140
         }}>
-          <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
-            {tooltip.rowCol} <span style={{ color: '#7c3aed' }}>↔</span> {tooltip.colCol}
+          <div style={{
+            color: 'var(--text-muted)',
+            marginBottom: 6
+          }}>
+            {tooltip.rowCol} ↔ {tooltip.colCol}
           </div>
-          <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>
-            {(tooltip.val === null || tooltip.val === undefined || isNaN(tooltip.val))
-              ? 'N/A' : Number(tooltip.val).toFixed(4)}
+
+          <div style={{
+            color: '#fff',
+            fontWeight: 700,
+            fontSize: 18
+          }}>
+            {tooltip.val == null
+              ? 'N/A'
+              : Number(tooltip.val).toFixed(4)}
           </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 2 }}>
-            {Math.abs(tooltip.val ?? 0) >= 0.7 ? '🔴 Strong correlation' :
-              Math.abs(tooltip.val ?? 0) >= 0.4 ? '🟡 Moderate correlation' :
-                '🟢 Weak/no correlation'}
+
+          <div style={{
+            fontSize: 10,
+            marginTop: 4,
+            color: 'var(--text-muted)'
+          }}>
+            {Math.abs(tooltip.val ?? 0) >= 0.7
+              ? 'Strong correlation'
+              : Math.abs(tooltip.val ?? 0) >= 0.4
+              ? 'Moderate correlation'
+              : 'Weak'}
           </div>
         </div>
       )}
