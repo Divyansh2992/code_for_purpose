@@ -81,8 +81,7 @@ export default function LandingPage({ onUpload }) {
 
         {/* Eyebrow */}
         <div style={{ ...s.eyebrow, opacity: mounted ? 1 : 0, transform: mounted ? 'none' : 'translateY(16px)', transition: 'all 0.6s cubic-bezier(0.23,1,0.32,1)' }}>
-          <Sparkles size={12} />
-          Natural Language → Instant Insights
+          
         </div>
 
         {/* Hero headline */}
@@ -199,8 +198,7 @@ const s = {
     alignItems: "center",
     justifyContent: "flex-start", 
     position: "relative",
-    overflowY: "auto",            
-    overflowX: "hidden",
+    overflow: "hidden",
     fontFamily: "'Outfit', system-ui, sans-serif",
     color: "#eef2ff",
     padding: "0 20px",
@@ -246,7 +244,7 @@ const s = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "10px 20px",
+    padding: "12px 20px",
     background: "rgba(8,12,24,0.7)",
     backdropFilter: "blur(20px)",
     border: "1px solid rgba(255,255,255,0.07)",
@@ -308,6 +306,8 @@ const s = {
     textAlign: "center",
     paddingTop: 80,
     paddingBottom: 100,
+    transform: "scale(0.92)",
+    transformOrigin: "top center",
   },
 
   eyebrow: {
@@ -501,6 +501,8 @@ const s = {
     alignItems: "center",
     gap: 8,
     zIndex: 2,
+    paddingTop: 70,
+    paddingBottom: 60,
   },
   footerTag: {
     fontFamily: "'IBM Plex Mono', monospace",
