@@ -8,3 +8,8 @@ datasets: dict = {}
 
 # session_id -> [ {"role": "user"/"assistant", "content": "..."} ]
 sessions: dict = {}
+
+# job_id -> {
+#   status, job_type, dataset_id, payload, created_at, updated_at, result, error
+# }
+jobs: dict = {}

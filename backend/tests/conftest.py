@@ -16,9 +16,11 @@ import state
 def clear_in_memory_state():
     state.datasets.clear()
     state.sessions.clear()
+    state.jobs.clear()
     yield
     state.datasets.clear()
     state.sessions.clear()
+    state.jobs.clear()
 
 
 @pytest.fixture

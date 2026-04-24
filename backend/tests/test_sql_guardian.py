@@ -1,4 +1,7 @@
+import pytest
+
 from routers import query as query_router
+from services import llm_service
 
 
 def _payload(dataset_id, question="test guardian behavior"):
@@ -179,3 +182,13 @@ def test_guardian_semantic_fail_still_calls_repair_with_fixed_sql_hint(client, s
     assert repair_calls["failed_sql"] == 'SELECT AVG("y") AS "avg_y" FROM data'
     assert "Verifier suggested SQL" in repair_calls["reason"]
     assert body["sql"] == 'SELECT AVG("y") AS "avg_y" FROM data'
+
+
+def test_sql_validator_allows_safe_replace_function():
+    sql = 'SELECT REPLACE("x", "UNKNOWN", "") AS "x_clean" FROM data'
+    assert llm_service.validate_sql(sql) == sql
+
+
+def test_sql_validator_blocks_replace_into_statement():
+    with pytest.raises(llm_service.SQLValidationError):
+        llm_service.validate_sql('WITH t AS (SELECT 1) SELECT * FROM t; REPLACE INTO data VALUES (1)')

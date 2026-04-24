@@ -35,7 +35,8 @@ _DANGEROUS_PATTERNS: List[re.Pattern] = [
     re.compile(r"\bUPDATE\b",      re.IGNORECASE),
     re.compile(r"\bALTER\b",       re.IGNORECASE),
     re.compile(r"\bCREATE\b",      re.IGNORECASE),
-    re.compile(r"\bREPLACE\b",     re.IGNORECASE),
+    # Allow scalar REPLACE(...) in SELECT expressions, but block MySQL-style write op.
+    re.compile(r"\bREPLACE\s+INTO\b", re.IGNORECASE),
     re.compile(r"\bMERGE\b",       re.IGNORECASE),
     re.compile(r"\bEXECUTE\b",     re.IGNORECASE),
     re.compile(r"\bEXEC\b",        re.IGNORECASE),

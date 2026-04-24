@@ -4,13 +4,14 @@ Orchestrates: LLM SQL generation → DuckDB execution → preprocessing (Smart) 
 data health → LLM explanation → chart detection → structured response.
 """
 from typing import List, Dict, Any, Optional, Tuple
+import re
 
 import duckdb
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
 import state
-from models.schemas import QueryRequest, QueryResponse, DataHealth
+from models.schemas import QueryRequest, QueryResponse, DataHealth, QueryLineage
 from services import llm_service, query_engine, preprocessing, data_health, spark_engine
 
 router = APIRouter()
@@ -42,12 +43,32 @@ async def run_query(req: QueryRequest) -> QueryResponse:
     mode: str           = req.mode  # "raw" | "smart" | "scalable"
     guardian_enabled: bool = req.guardian_enabled
 
+    preprocess_result: Optional[preprocessing.PreprocessResult] = None
+    llm_schema = schema
+    llm_sample = sample
+
+    # In smart mode, align SQL generation + guardian validation + execution
+    # to the same preprocessed schema to avoid column-name mismatches.
+    if mode == "smart":
+        try:
+            preprocess_result = preprocessing.preprocess(file_path, schema)
+            rename_map = preprocess_result.metadata.get("rename_map") or {}
+            llm_schema = _apply_rename_map_to_schema(schema, rename_map)
+            try:
+                llm_sample = preprocess_result.conn.execute("SELECT * FROM data LIMIT 5").fetchdf().to_dict(orient="records")
+            except Exception:
+                llm_sample = sample
+        except Exception:
+            preprocess_result = None
+            llm_schema = schema
+            llm_sample = sample
+
     # ── 2. Build history for context memory ───────────────────────────────
     history = state.sessions.get(session_id, [])
 
     # ── 3. Generate SQL ───────────────────────────────────────────────────
     try:
-        sql = llm_service.generate_sql(schema, sample, req.question, history)
+        sql = llm_service.generate_sql(llm_schema, llm_sample, req.question, history)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM SQL generation failed: {exc}")
 
@@ -67,12 +88,13 @@ async def run_query(req: QueryRequest) -> QueryResponse:
     if guardian_enabled:
         guardian_result = _run_sql_guardian(
             file_path=file_path,
-            schema=schema,
-            sample=sample,
+            schema=llm_schema,
+            sample=llm_sample,
             question=req.question,
             history=history,
             initial_sql=sql,
             max_retries=MAX_GUARDIAN_RETRIES,
+            dry_run_conn=preprocess_result.conn if preprocess_result is not None else None,
         )
         guardian_log = guardian_result["log"]
         guardian_steps = guardian_result.get("steps", [])
@@ -82,6 +104,11 @@ async def run_query(req: QueryRequest) -> QueryResponse:
         sql = guardian_result["sql"]
 
         if not guardian_passed:
+            if preprocess_result is not None:
+                try:
+                    preprocess_result.conn.close()
+                except Exception:
+                    pass
             health = data_health.compute_health(schema, 0, row_count)
             return QueryResponse(
                 sql=sql,
@@ -110,7 +137,8 @@ async def run_query(req: QueryRequest) -> QueryResponse:
 
     try:
         if mode == "smart":
-            preprocess_result = preprocessing.preprocess(file_path, schema)
+            if preprocess_result is None:
+                preprocess_result = preprocessing.preprocess(file_path, schema)
             log = _preprocess_log_to_lines(preprocess_result.log)
             outlier_count = preprocess_result.outlier_count
             conn = preprocess_result.conn
@@ -198,6 +226,16 @@ async def run_query(req: QueryRequest) -> QueryResponse:
     # ── 7. Chart detection ────────────────────────────────────────────────
     chart_type, chart_x, chart_y = _detect_chart(rows, columns)
 
+    # ── 7.1 Column-level lineage ──────────────────────────────────────────
+    lineage = _build_lineage(
+        sql=sql,
+        schema=schema,
+        result_columns=columns,
+        explanation_data=explanation_data,
+        chart_x=chart_x,
+        chart_y=chart_y,
+    )
+
     # ── 8. Save to session history ────────────────────────────────────────
     if session_id not in state.sessions:
         state.sessions[session_id] = []
@@ -224,6 +262,7 @@ async def run_query(req: QueryRequest) -> QueryResponse:
         guardian_retries=guardian_retries,
         guardian_log=guardian_log,
         guardian_steps=guardian_steps,
+        lineage=QueryLineage(**lineage),
         why_analysis=explanation_data.get("why_analysis", ""),
     )
 
@@ -238,6 +277,7 @@ def _run_sql_guardian(
     history: List[Dict[str, str]],
     initial_sql: str,
     max_retries: int = 2,
+    dry_run_conn: Optional[duckdb.DuckDBPyConnection] = None,
 ) -> Dict[str, Any]:
     """
     Verify and auto-repair SQL before execution.
@@ -421,7 +461,7 @@ def _run_sql_guardian(
             )
             continue
 
-        dry_ok, dry_error = _dry_run_sql(file_path, candidate_sql)
+        dry_ok, dry_error = _dry_run_sql(file_path, candidate_sql, conn=dry_run_conn)
         if dry_ok:
             log.append("Attempt {0}: dry-run passed (EXPLAIN + LIMIT probe).".format(attempt + 1))
             _add_stage(
@@ -529,20 +569,48 @@ def _repair_with_feedback(
         return None
 
 
-def _dry_run_sql(file_path: str, sql: str) -> Tuple[bool, str]:
-    conn = duckdb.connect()
+def _dry_run_sql(
+    file_path: str,
+    sql: str,
+    conn: Optional[duckdb.DuckDBPyConnection] = None,
+) -> Tuple[bool, str]:
+    owns_conn = conn is None
+    if owns_conn:
+        conn = duckdb.connect()
+
     escaped_path = file_path.replace("\\", "/")
     safe_sql = sql.strip().rstrip(";")
 
     try:
-        conn.execute(f"CREATE TABLE data AS SELECT * FROM read_csv_auto('{escaped_path}')")
+        if owns_conn:
+            conn.execute(f"CREATE TABLE data AS SELECT * FROM read_csv_auto('{escaped_path}')")
         conn.execute(f"EXPLAIN {safe_sql}")
         conn.execute(f"SELECT * FROM ({safe_sql}) AS guardian_probe LIMIT 3").fetchall()
         return True, ""
     except Exception as exc:
         return False, str(exc)
     finally:
-        conn.close()
+        if owns_conn and conn is not None:
+            conn.close()
+
+
+def _apply_rename_map_to_schema(
+    schema: List[Dict[str, Any]],
+    rename_map: Dict[str, str],
+) -> List[Dict[str, Any]]:
+    if not rename_map:
+        return schema
+
+    transformed: List[Dict[str, Any]] = []
+    for col in schema:
+        if not isinstance(col, dict):
+            continue
+        new_col = dict(col)
+        old_name = col.get("name")
+        if isinstance(old_name, str):
+            new_col["name"] = rename_map.get(old_name, old_name)
+        transformed.append(new_col)
+    return transformed
 
 
 def _compute_guardian_confidence(retries: int, verifier_available: bool) -> float:
@@ -656,3 +724,85 @@ def _format_query_error(mode: str, error_msg: str) -> str:
         )
 
     return f"Scalable mode failed during Spark processing: {error_msg}"
+
+
+def _build_lineage(
+    sql: str,
+    schema: List[Dict[str, Any]],
+    result_columns: List[str],
+    explanation_data: Dict[str, Any],
+    chart_x: Optional[str],
+    chart_y: List[str],
+) -> Dict[str, Any]:
+    source_cols = [
+        str(col.get("name"))
+        for col in schema
+        if isinstance(col, dict) and isinstance(col.get("name"), str)
+    ]
+    source_lookup = {c.lower(): c for c in source_cols}
+
+    sql_columns = sorted(_extract_source_cols_from_text(sql, source_lookup))
+
+    explanation_parts = [
+        str(explanation_data.get("explanation", "") or ""),
+        str(explanation_data.get("why_analysis", "") or ""),
+    ]
+    insights = explanation_data.get("insights", [])
+    if isinstance(insights, list):
+        explanation_parts.extend(str(i) for i in insights if i is not None)
+    explanation_text = "\n".join(explanation_parts)
+    explanation_columns = sorted(_extract_source_cols_from_text(explanation_text, source_lookup))
+
+    chart_columns = sorted({
+        source_lookup[c.lower()]
+        for c in [chart_x, *(chart_y or [])]
+        if isinstance(c, str) and c.lower() in source_lookup
+    })
+
+    result_columns_match = sorted({
+        source_lookup[c.lower()]
+        for c in result_columns
+        if isinstance(c, str) and c.lower() in source_lookup
+    })
+
+    derived_columns = [
+        c for c in result_columns
+        if isinstance(c, str) and c.lower() not in source_lookup
+    ]
+
+    lineage_columns = sorted({
+        *sql_columns,
+        *explanation_columns,
+        *chart_columns,
+        *result_columns_match,
+    })
+
+    return {
+        "source_columns": lineage_columns,
+        "sql_columns": sql_columns,
+        "explanation_columns": explanation_columns,
+        "chart_columns": chart_columns,
+        "result_columns": result_columns,
+        "derived_columns": derived_columns,
+    }
+
+
+def _extract_source_cols_from_text(text: str, source_lookup: Dict[str, str]) -> List[str]:
+    if not text or not source_lookup:
+        return []
+
+    found = set()
+
+    # 1) Quoted identifiers in SQL: "column_name"
+    for quoted in re.findall(r'"([^\"]+)"', text):
+        key = quoted.lower()
+        if key in source_lookup:
+            found.add(source_lookup[key])
+
+    # 2) Word-boundary match for plain mentions in SQL/explanations
+    lowered_text = text.lower()
+    for key, original in source_lookup.items():
+        if re.search(rf'\b{re.escape(key)}\b', lowered_text):
+            found.add(original)
+
+    return list(found)

@@ -41,6 +41,15 @@ class DataHealth(BaseModel):
     summary_text: Optional[str] = None
 
 
+class QueryLineage(BaseModel):
+    source_columns: List[str] = Field(default_factory=list)
+    sql_columns: List[str] = Field(default_factory=list)
+    explanation_columns: List[str] = Field(default_factory=list)
+    chart_columns: List[str] = Field(default_factory=list)
+    result_columns: List[str] = Field(default_factory=list)
+    derived_columns: List[str] = Field(default_factory=list)
+
+
 class QueryResponse(BaseModel):
     sql: str
     result: List[Dict[str, Any]]
@@ -59,5 +68,6 @@ class QueryResponse(BaseModel):
     guardian_retries: int = 0
     guardian_log: List[str] = []
     guardian_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    lineage: QueryLineage = Field(default_factory=QueryLineage)
     why_analysis: Optional[str] = None
     error: Optional[str] = None
