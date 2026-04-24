@@ -259,6 +259,26 @@ Upload a CSV file. Returns schema, statistics, and LLM-suggested questions.
 
 ### `POST /query`
 
+Ask a natural language question about an uploaded dataset. Returns SQL, results, explanations, insights, chart info, and data health.
+
+### `POST /auto-visualize`
+
+Auto-generates chart-ready datasets (trend, composition, comparison) from your CSV. Returns chart metadata and SQL for each chart.
+
+### `POST /correlation-matrix`
+
+Returns a full pairwise correlation matrix for all numeric columns, for use in a heatmap.
+
+### `POST /data-health`
+
+Returns a detailed data health report for a dataset, including missing %, outliers, confidence score, and per-column quality.
+
+### `POST /jobs/preprocess`, `/jobs/correlation`, `/jobs/auto-visualize`
+
+Start background jobs for heavy tasks (preprocessing, correlation, auto-visualization). Returns a job ID and poll URL. Use `GET /jobs/{job_id}` to check status and retrieve results.
+
+### `POST /query`
+
 Ask a natural language question about an uploaded dataset.
 
 **Request:**
@@ -312,31 +332,35 @@ Ask a natural language question about an uploaded dataset.
 
 ## ✨ Features
 
-| Feature                                            | Status |
-| -------------------------------------------------- | ------ |
-| CSV drag-and-drop upload                           | ✅     |
-| Schema extraction (types, null%, mean/min/max)     | ✅     |
-| Natural language → SQL (Groq LLM)                  | ✅     |
-| DuckDB query execution                             | ✅     |
-| Raw Mode (no preprocessing)                        | ✅     |
-| Scalable Mode (PySpark pipeline)                   | ✅     |
-| Smart Mode (auto imputation + outlier detection)   | ✅     |
-| Skewness-aware imputation (mean vs median)         | ✅     |
-| Robust outlier handling (IQR guard + dedup count)  | ✅     |
-| Preprocessing transparency log                     | ✅     |
-| Data Health drill-down (reasons/penalties/columns) | ✅     |
-| Plain English explanation                          | ✅     |
-| Bullet insights                                    | ✅     |
-| "Why did this happen?" analysis                    | ✅     |
-| SQL Guardian (validator + semantic + dry-run)      | ✅     |
-| Guardian panel UX (attempt/stage expansion)        | ✅     |
-| Interactive chart builder (Type/X/Y/Agg)           | ✅     |
-| Chart types: bar/line/area/pie/scatter             | ✅     |
-| Correlation matrix heatmap rendering               | ✅     |
-| Suggested questions (LLM-generated)                | ✅     |
-| Session-based context memory (follow-ups)          | ✅     |
-| Dark glassmorphism UI                              | ✅     |
-| Privacy-safe (only schema+5 rows to LLM)           | ✅     |
+| Feature                                                                | Status |
+| ---------------------------------------------------------------------- | ------ |
+| CSV drag-and-drop upload                                               | ✅     |
+| Schema extraction (types, null%, mean/min/max)                         | ✅     |
+| Natural language → SQL (Groq LLM)                                      | ✅     |
+| DuckDB query execution                                                 | ✅     |
+| Raw Mode (no preprocessing)                                            | ✅     |
+| Scalable Mode (PySpark pipeline)                                       | ✅     |
+| Smart Mode (auto imputation + outlier detection)                       | ✅     |
+| Skewness-aware imputation (mean vs median)                             | ✅     |
+| Robust outlier handling (IQR guard + dedup count)                      | ✅     |
+| Preprocessing transparency log                                         | ✅     |
+| Data Health drill-down (reasons/penalties/columns)                     | ✅     |
+| Plain English explanation                                              | ✅     |
+| Bullet insights                                                        | ✅     |
+| "Why did this happen?" analysis                                        | ✅     |
+| SQL Guardian (validator + semantic + dry-run)                          | ✅     |
+| Guardian panel UX (attempt/stage expansion)                            | ✅     |
+| Interactive chart builder (Type/X/Y/Agg)                               | ✅     |
+| Chart types: bar/line/area/pie/scatter                                 | ✅     |
+| Correlation matrix heatmap rendering                                   | ✅     |
+| Suggested questions (LLM-generated)                                    | ✅     |
+| Session-based context memory (follow-ups)                              | ✅     |
+| Dark glassmorphism UI                                                  | ✅     |
+| Privacy-safe (only schema+5 rows to LLM)                               | ✅     |
+| **Auto-visualization endpoint** (trend, comp, compare)                 | ✅     |
+| **Correlation matrix API** (heatmap-ready)                             | ✅     |
+| **Background jobs API** (async heavy tasks)                            | ✅     |
+| **Enhanced data health API** (raw/smart/scalable, per-column, summary) | ✅     |
 
 ---
 

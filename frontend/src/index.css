@@ -675,6 +675,23 @@ body {
   font-size: 14px;
   color: var(--text);
   line-height: 1.65;
+  white-space: pre-line;
+}
+
+.explanation-block {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.explanation-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
 }
 
 /* Why analysis */

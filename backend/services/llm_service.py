@@ -497,41 +497,62 @@ def explain_result(
     Generate a plain-English explanation, bullet insights, and 'Why did this happen?'
     from the query result.
     """
-    result_preview = json.dumps(_serialise(result[:15]), indent=2)
+    if not result:
+        return {
+            "explanation": "No rows matched the query conditions.",
+            "insights": ["Try broadening filters or removing restrictive conditions."],
+            "why_analysis": "The combination of selected filters likely narrowed the dataset to zero matching rows.",
+        }
+
+    preview_rows = _serialise(result[:20])
+    result_preview = json.dumps(preview_rows, indent=2)
+    cols_line = ", ".join(columns or [])
 
     prompt = (
         f'The user asked: "{question}"\n'
         f"SQL executed: {sql}\n"
-        f"Result (up to 15 rows):\n{result_preview}\n\n"
+        f"Result columns: {cols_line}\n"
+        f"Result preview (up to 20 rows):\n{result_preview}\n\n"
         "Provide the following — use EXACTLY the section headers shown:\n\n"
-        "EXPLANATION: <2-3 sentences in plain English summarising the key finding>\n\n"
+        "EXPLANATION: <2-4 sentences in plain English summarising the key finding and scale>\n\n"
         "INSIGHTS:\n"
-        "• <insight 1>\n"
-        "• <insight 2>\n"
-        "• <insight 3>\n"
+        "• <insight 1 with concrete value/metric>\n"
+        "• <insight 2 with concrete value/metric>\n"
+        "• <insight 3 (trend, spread, or anomaly)>\n"
         "• <insight 4 if applicable>\n\n"
-        "WHY: <1-2 sentences on possible root causes or driving factors>"
+        "WHY: <1-2 sentences on likely drivers rooted in the observed numbers>"
     )
 
-    response = _client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a concise, insightful data analyst. "
-                    "Always respond in the exact format requested. "
-                    "Be specific and data-driven — reference actual numbers from the result."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.3,
-        max_tokens=800,
-    )
+    try:
+        response = _client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a concise, insightful data analyst. "
+                        "Always follow the exact section format. "
+                        "Ground every claim in the provided rows and never invent metrics."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=850,
+        )
 
-    content = response.choices[0].message.content
-    return _parse_explanation(content)
+        content = response.choices[0].message.content
+        parsed = _parse_explanation(content)
+        if _is_weak_explanation(parsed.get("explanation", "")):
+            fallback = _deterministic_explanation(question, result, columns)
+            if not parsed.get("insights"):
+                parsed["insights"] = fallback["insights"]
+            parsed["explanation"] = fallback["explanation"]
+            if not parsed.get("why_analysis"):
+                parsed["why_analysis"] = fallback["why_analysis"]
+        return parsed
+    except Exception:
+        return _deterministic_explanation(question, result, columns)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -622,10 +643,18 @@ def _parse_explanation(content: str) -> Dict[str, Any]:
         if upper.startswith("EXPLANATION:"):
             explanation = line[len("EXPLANATION:"):].strip()
             current = "explanation"
+        elif upper.startswith("**EXPLANATION:**"):
+            explanation = line[len("**EXPLANATION:**"):].strip()
+            current = "explanation"
         elif upper.startswith("INSIGHTS:"):
+            current = "insights"
+        elif upper.startswith("**INSIGHTS:**"):
             current = "insights"
         elif upper.startswith("WHY:"):
             why = line[len("WHY:"):].strip()
+            current = "why"
+        elif upper.startswith("**WHY:**"):
+            why = line[len("**WHY:**"):].strip()
             current = "why"
         elif (
             (line.startswith("•") or line.startswith("-") or re.match(r"^\d+\.", line))
@@ -651,6 +680,129 @@ def _parse_explanation(content: str) -> Dict[str, Any]:
         "insights": insights[:5],
         "why_analysis": why,
     }
+
+
+def _is_weak_explanation(text: str) -> bool:
+    cleaned = (text or "").strip().lower()
+    if not cleaned:
+        return True
+    weak_phrases = {
+        "query executed successfully.",
+        "query executed successfully",
+        "here are the results",
+        "the query returned results",
+    }
+    if cleaned in weak_phrases:
+        return True
+    return len(cleaned) < 35
+
+
+def _deterministic_explanation(
+    question: str,
+    result: List[Dict[str, Any]],
+    columns: List[str],
+) -> Dict[str, Any]:
+    rows = result[:200]
+    row_count = len(rows)
+    if row_count == 0:
+        return {
+            "explanation": "No rows matched the query conditions.",
+            "insights": ["Try broadening filters or removing restrictive conditions."],
+            "why_analysis": "The selected filters likely narrowed the dataset to zero matching rows.",
+        }
+
+    numeric_cols = []
+    for col in columns:
+        nums = [_to_float(r.get(col)) for r in rows]
+        valid = [n for n in nums if n is not None]
+        if valid and len(valid) / max(1, row_count) >= 0.6:
+            numeric_cols.append(col)
+
+    primary_num = numeric_cols[0] if numeric_cols else None
+    primary_dim = next((c for c in columns if c != primary_num), columns[0] if columns else None)
+
+    insights: List[str] = []
+    why = ""
+
+    if primary_num:
+        values = [_to_float(r.get(primary_num)) for r in rows]
+        values = [v for v in values if v is not None]
+        avg_v = sum(values) / len(values) if values else 0.0
+        min_v = min(values) if values else 0.0
+        max_v = max(values) if values else 0.0
+
+        explanation = (
+            f"The query returned {row_count} row{'s' if row_count != 1 else ''}. "
+            f"The primary metric \"{primary_num}\" averages {_fmt_num(avg_v)} "
+            f"with a range from {_fmt_num(min_v)} to {_fmt_num(max_v)}."
+        )
+
+        insights.append(
+            f"\"{primary_num}\" spread: min {_fmt_num(min_v)}, max {_fmt_num(max_v)}, avg {_fmt_num(avg_v)}."
+        )
+
+        if primary_dim:
+            top_row = max(rows, key=lambda r: _to_float(r.get(primary_num)) or float("-inf"))
+            low_row = min(rows, key=lambda r: _to_float(r.get(primary_num)) or float("inf"))
+            top_dim = top_row.get(primary_dim)
+            low_dim = low_row.get(primary_dim)
+            insights.append(
+                f"Highest \"{primary_num}\" appears at \"{primary_dim}\"={top_dim} ({_fmt_num(_to_float(top_row.get(primary_num)) or 0)})."
+            )
+            insights.append(
+                f"Lowest \"{primary_num}\" appears at \"{primary_dim}\"={low_dim} ({_fmt_num(_to_float(low_row.get(primary_num)) or 0)})."
+            )
+
+        volatility = (max_v - min_v) / abs(avg_v) if avg_v else 0
+        if volatility > 1.5:
+            why = "The wide spread suggests uneven performance across groups or periods in the returned subset."
+        elif volatility > 0.6:
+            why = "Variation is moderate, indicating some meaningful differences across the returned rows."
+        else:
+            why = "Values are relatively stable in this slice, so no strong dispersion pattern is visible."
+    else:
+        key_col = columns[0] if columns else "value"
+        uniques = len({str(r.get(key_col)) for r in rows}) if key_col else row_count
+        explanation = (
+            f"The query returned {row_count} row{'s' if row_count != 1 else ''} "
+            f"across approximately {uniques} distinct \"{key_col}\" values."
+        )
+        insights = [
+            f"Result contains categorical/text-heavy output with {row_count} records.",
+            "Add an aggregate metric (COUNT, SUM, AVG) for deeper quantitative insights.",
+        ]
+        why = "The output appears descriptive rather than numeric, so the key signal is distribution across returned labels."
+
+    if not insights:
+        insights = ["The query completed successfully and returned interpretable rows."]
+
+    return {
+        "explanation": explanation,
+        "insights": insights[:5],
+        "why_analysis": why,
+    }
+
+
+def _to_float(value: Any) -> Optional[float]:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if value is None:
+        return None
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except Exception:
+        return None
+
+
+def _fmt_num(value: float) -> str:
+    if abs(value) >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if abs(value) >= 1_000:
+        return f"{value / 1_000:.2f}k"
+    return f"{value:.2f}"
 
 
 def _serialise(obj: Any) -> Any:

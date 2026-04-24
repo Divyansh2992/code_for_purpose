@@ -296,7 +296,10 @@ function AIBubble({ msg }) {
 
           {/* Explanation */}
           {msg.explanation && (
-            <p className="explanation-text">{msg.explanation}</p>
+            <div className="explanation-block">
+              <div className="explanation-label">🧾 Explanation</div>
+              <p className="explanation-text">{msg.explanation}</p>
+            </div>
           )}
 
           {/* Insights */}
